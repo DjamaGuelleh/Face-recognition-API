@@ -3,6 +3,9 @@ import os
 from flask import Blueprint, request, jsonify, current_app, send_file
 import logging
 
+from models.person import Person
+from models.database import db
+
 logger = logging.getLogger(__name__)
 
 # Créer le Blueprint
@@ -213,4 +216,79 @@ def debug_specific_embedding(vector_id):
         return jsonify({"embedding_info": embedding_info}), 200
     except Exception as e:
         logger.error(f"Erreur lors du débogage: {e}")
+        return jsonify({"error": f"Erreur interne du serveur: {str(e)}"}), 500
+    
+@api.route('/admin/clear-all', methods=['POST'])
+def clear_all_data():
+    """Supprime toutes les données des bases de données"""
+    try:
+        # Vérifier l'authentification si nécessaire
+        
+        # 1. Récupérer toutes les personnes
+        persons = Person.query.all()
+        
+        # 2. Supprimer les images
+        for person in persons:
+            if os.path.exists(person.photo_path):
+                try:
+                    os.remove(person.photo_path)
+                    logger.info(f"Image supprimée: {person.photo_path}")
+                except Exception as e:
+                    logger.error(f"Erreur lors de la suppression de l'image {person.photo_path}: {e}")
+        
+        # 3. Supprimer ChromaDB de manière sécurisée
+        chroma_dir = current_app.config['CHROMA_DB_DIR']
+        collection_name = current_app.config['CHROMA_COLLECTION']
+        
+        # D'abord, essayer de supprimer la collection via l'API
+        try:
+            # Essayer de supprimer la collection via l'API
+            current_app.vector_store.client.delete_collection(collection_name)
+            logger.info(f"Collection ChromaDB '{collection_name}' supprimée via API")
+        except Exception as e:
+            logger.warning(f"Impossible de supprimer la collection via API: {e}")
+        
+        # Recréer l'instance VectorStore
+        try:
+            # Fermer toutes les connexions potentielles
+            del current_app.vector_store
+            import gc
+            gc.collect()  # Forcer le garbage collector
+            
+            # Recréer le VectorStore
+            from models.vector_store import VectorStore
+            try:
+                # Supprimer physiquement le répertoire
+                import shutil
+                if os.path.exists(chroma_dir):
+                    shutil.rmtree(chroma_dir)
+                    logger.info(f"Répertoire ChromaDB supprimé: {chroma_dir}")
+                os.makedirs(chroma_dir, exist_ok=True)
+            except Exception as e:
+                logger.error(f"Erreur lors de la suppression du répertoire ChromaDB: {e}")
+            
+            # Réinitialiser l'instance
+            current_app.vector_store = VectorStore(
+                db_directory=chroma_dir,
+                collection_name=collection_name
+            )
+            logger.info("Instance VectorStore réinitialisée")
+        except Exception as e:
+            logger.error(f"Erreur lors de la réinitialisation de VectorStore: {e}")
+            return jsonify({"error": f"Erreur Vector Store: {str(e)}"}), 500
+        
+        # 4. Vider la table SQLite
+        try:
+            Person.query.delete()
+            db.session.commit()
+            logger.info("Table Person vidée avec succès")
+        except Exception as e:
+            db.session.rollback()
+            logger.error(f"Erreur lors de la suppression des données SQLite: {e}")
+            return jsonify({"error": f"Erreur SQLite: {str(e)}"}), 500
+        
+        return jsonify({"success": True, "message": "Toutes les données ont été supprimées"}), 200
+        
+    except Exception as e:
+        logger.error(f"Erreur générale lors de la suppression des données: {e}")
         return jsonify({"error": f"Erreur interne du serveur: {str(e)}"}), 500
