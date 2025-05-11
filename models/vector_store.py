@@ -36,43 +36,66 @@ class VectorStore:
     def add_embedding(self, person_id, embedding, metadata):
         """Ajoute un embedding à la collection avec les métadonnées associées"""
         try:
+            # Assurez-vous que l'embedding est une liste et non un numpy array
+            if hasattr(embedding, 'tolist'):
+                embedding = embedding.tolist()
+                
+            # Vérifiez que l'embedding est bien formaté
+            logger.info(f"Ajout d'un embedding de taille {len(embedding)} pour {person_id}")
+            
             self.collection.add(
                 ids=[person_id],
                 embeddings=[embedding],
                 metadatas=[metadata]
             )
-            logger.info(f"Embedding ajouté pour la personne {person_id}")
+            
+            # Vérifiez que l'embedding a bien été ajouté
+            check = self.collection.get(
+                ids=[person_id],
+                include=["embeddings"]
+            )
+            
+            if check['embeddings'][0] is None:
+                logger.error(f"L'embedding pour {person_id} a été ajouté mais est NULL")
+                return False
+                
+            logger.info(f"Embedding ajouté avec succès pour la personne {person_id}")
             return True
         except Exception as e:
             logger.error(f"Erreur lors de l'ajout de l'embedding: {e}")
             return False
     
-    def search_similar(self, embedding, threshold=0.9, limit=1):
+    def search_similar(self, embedding, threshold=0.7, limit=5):
         """
         Recherche les embeddings similaires avec un seuil minimal
-        
-        Args:
-            embedding: Vecteur d'embedding à rechercher
-            threshold: Seuil de similarité (0-1)
-            limit: Nombre maximum de résultats
-            
-        Returns:
-            Liste des correspondances trouvées
         """
         try:
+            # Assurez-vous que l'embedding est une liste et non un numpy array
+            if hasattr(embedding, 'tolist'):
+                embedding = embedding.tolist()
+                
+            logger.info(f"Recherche avec embedding de taille {len(embedding)}")
+            
             results = self.collection.query(
                 query_embeddings=[embedding],
-                n_results=limit
+                n_results=limit,
+                include=["metadatas", "distances", "embeddings"]
             )
             
             # Vérifier si des résultats ont été trouvés
             if not results['ids'][0]:
+                logger.warning("Aucun résultat trouvé")
                 return []
             
+            # Vérifier si les embeddings existent
+            if results.get('embeddings') is None or all(e is None for e in results.get('embeddings', [[]])[0]):
+                logger.warning("Les embeddings sont NULL dans les résultats")
+                
             # Filtrer par seuil de similarité
             matches = []
             for i, score in enumerate(results['distances'][0]):
                 similarity = 1 - score  # Convertir distance cosinus en similarité
+                logger.info(f"ID: {results['ids'][0][i]}, Similarité: {similarity}")
                 
                 if similarity >= threshold:
                     matches.append({

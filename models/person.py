@@ -1,6 +1,7 @@
-from datetime import datetime
+from datetime import datetime,timezone
 from .database import db
 import uuid
+
 
 class Person(db.Model):
     """Modèle de données pour une personne"""
@@ -12,8 +13,8 @@ class Person(db.Model):
     nationality = db.Column(db.String(50), nullable=False)
     photo_path = db.Column(db.String(255), nullable=False)
     vector_id = db.Column(db.String(36), unique=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     
     def __repr__(self):
         return f"<Person {self.name}, {self.age} ans>"
@@ -27,6 +28,7 @@ class Person(db.Model):
             "gender": self.gender,
             "nationality": self.nationality,
             "photo_path": self.photo_path,
+            "vector_id": self.vector_id,  
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()
         }

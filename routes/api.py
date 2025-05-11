@@ -1,6 +1,7 @@
-from flask import Blueprint, request, jsonify, current_app
-import logging
+import base64
 import os
+from flask import Blueprint, request, jsonify, current_app, send_file
+import logging
 
 logger = logging.getLogger(__name__)
 
@@ -82,26 +83,11 @@ def get_person(person_id):
         logger.error(f"Erreur lors de la récupération de la personne: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
-@api.route('/persons/<person_id>', methods=['DELETE'])
-def delete_person(person_id):
-    """Endpoint pour supprimer une personne"""
-    try:
-        person_service = current_app.person_service
-        result = person_service.delete_person(person_id)
-        
-        if not result:
-            return jsonify({"error": "Personne non trouvée ou impossible à supprimer"}), 404
-            
-        return jsonify({"success": True, "message": "Personne supprimée avec succès"}), 200
-    except Exception as e:
-        logger.error(f"Erreur lors de la suppression de la personne: {e}")
-        return jsonify({"error": "Erreur interne du serveur"}), 500
-
 @api.route('/identify', methods=['POST'])
 def identify_person():
     """
     Endpoint pour identifier une personne à partir d'une photo
-    Nécessite une image avec un visage
+    Renvoie l'image et les informations de la personne si trouvée
     """
     try:
         if 'photo' not in request.files:
@@ -126,6 +112,29 @@ def identify_person():
         # Rechercher la personne
         person_service = current_app.person_service
         result = person_service.find_person_by_face(photo, threshold)
+        
+        # Si une personne est trouvée, récupérer son image
+        if result.get("found", False) and "person" in result:
+            person_data = result["person"]
+            photo_path = person_data.get("photo_path")
+            
+            if photo_path and os.path.exists(photo_path):
+                # Déterminer le type MIME de l'image
+                file_ext = os.path.splitext(photo_path)[1].lower()
+                mime_type = {
+                    '.jpg': 'image/jpeg',
+                    '.jpeg': 'image/jpeg',
+                    '.png': 'image/png',
+                    '.gif': 'image/gif'
+                }.get(file_ext, 'application/octet-stream')
+                
+                # Lire l'image et l'encoder en base64
+                with open(photo_path, "rb") as image_file:
+                    encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
+                    
+                # Ajouter l'image encodée et son type MIME au résultat
+                result["person"]["photo_data"] = encoded_image
+                result["person"]["photo_mime_type"] = mime_type
         
         return jsonify(result), 200
         
@@ -160,3 +169,48 @@ def process_image():
     except Exception as e:
         logger.error(f"Erreur lors du traitement de l'image: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
+    
+@api.route('/debug/embeddings', methods=['GET'])
+def debug_embeddings():
+    """Route de débogage pour vérifier les embeddings"""
+    try:
+        vector_store = current_app.vector_store
+        # Récupérer tous les embeddings (10 premiers)
+        results = vector_store.collection.query(
+            query_embeddings=[[0] * 512],  # Un vecteur zéro pour récupérer tous les éléments
+            n_results=10,
+            include=["metadatas", "documents", "distances", "embeddings"]
+        )
+        
+        return jsonify({"embeddings": results}), 200
+    except Exception as e:
+        logger.error(f"Erreur lors du débogage: {e}")
+        return jsonify({"error": f"Erreur interne du serveur: {str(e)}"}), 500
+
+@api.route('/debug/embedding/<vector_id>', methods=['GET'])
+def debug_specific_embedding(vector_id):
+    """Route de débogage pour vérifier un embedding spécifique"""
+    try:
+        vector_store = current_app.vector_store
+        
+        # Récupérer l'embedding spécifique
+        results = vector_store.collection.get(
+            ids=[vector_id],
+            include=["embeddings", "metadatas"]
+        )
+        
+        if not results['ids']:
+            return jsonify({"error": "Embedding non trouvé"}), 404
+            
+        # Vérifier si l'embedding existe
+        embedding = results.get('embeddings', [None])[0]
+        embedding_info = {
+            "exists": embedding is not None,
+            "length": len(embedding) if embedding is not None else 0,
+            "metadata": results.get('metadatas', [None])[0]
+        }
+        
+        return jsonify({"embedding_info": embedding_info}), 200
+    except Exception as e:
+        logger.error(f"Erreur lors du débogage: {e}")
+        return jsonify({"error": f"Erreur interne du serveur: {str(e)}"}), 500

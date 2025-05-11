@@ -39,9 +39,8 @@ class PersonService:
             Person ou None en cas d'erreur
         """
         try:
-            # Générer un identifiant unique
+            # Générer un identifiant unique pour la personne
             person_id = str(uuid.uuid4())
-            vector_id = str(uuid.uuid4())
             
             # Sauvegarder l'image
             filename = f"{person_id}_{image_file.filename}"
@@ -57,23 +56,24 @@ class PersonService:
                     os.remove(image_path)
                 return None
             
-            # Métadonnées pour ChromaDB
+            # Métadonnées pour ChromaDB - on utilise l'ID de la personne directement
             metadata = {
                 "name": name,
                 "age": age,
                 "gender": gender,
                 "nationality": nationality,
-                "person_id": person_id
+                "person_id": person_id  # Pour compatibilité avec l'existant
             }
             
-            # Ajouter l'embedding à ChromaDB
-            if not self.vector_store.add_embedding(vector_id, embedding, metadata):
+            # Ajouter l'embedding à ChromaDB en utilisant l'ID de la personne
+            if not self.vector_store.add_embedding(person_id, embedding, metadata):
                 logger.error(f"Erreur lors de l'ajout de l'embedding pour {name}")
                 if os.path.exists(image_path):
                     os.remove(image_path)
                 return None
             
             # Créer la personne dans la base de données
+            # On utilise le même ID pour vector_id
             person = Person(
                 id=person_id,
                 name=name,
@@ -81,7 +81,7 @@ class PersonService:
                 gender=gender,
                 nationality=nationality,
                 photo_path=image_path,
-                vector_id=vector_id
+                vector_id=person_id  # Même valeur que person_id
             )
             
             db.session.add(person)
@@ -98,7 +98,7 @@ class PersonService:
                 os.remove(image_path)
             return None
     
-    def find_person_by_face(self, image_file, threshold=0.9):
+    def find_person_by_face(self, image_file, threshold=0.7):
         """
         Recherche une personne en utilisant la reconnaissance faciale
         
@@ -131,11 +131,14 @@ class PersonService:
             if not matches:
                 return {"found": False, "message": "Aucune correspondance trouvée"}
             
-            # Récupérer les informations de la personne
+            # Récupérer les informations de la personne (maintenant l'ID est directement l'ID de la personne)
             best_match = matches[0]
-            person = Person.query.filter_by(id=best_match["metadata"]["person_id"]).first()
+            person_id = best_match["id"]  # ID direct de ChromaDB, pas depuis metadata
+            
+            person = Person.query.filter_by(id=person_id).first()
             
             if not person:
+                logger.warning(f"Personne {person_id} non trouvée dans la base de données malgré correspondance dans ChromaDB")
                 return {"found": False, "message": "Personne non trouvée dans la base de données"}
             
             return {
@@ -150,7 +153,7 @@ class PersonService:
             if 'temp_path' in locals() and os.path.exists(temp_path):
                 os.remove(temp_path)
             return {"found": False, "message": f"Erreur interne: {str(e)}"}
-    
+        
     def get_all_persons(self):
         """Récupère toutes les personnes dans la base de données"""
         try:
