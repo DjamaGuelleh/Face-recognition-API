@@ -1,0 +1,10 @@
+flask
+flask-cors
+flask-sqlalchemy
+insightface
+opencv-python
+numpy
+pillow
+chromadb
+python-dotenv
+gunicorn
