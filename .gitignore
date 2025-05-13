@@ -1,0 +1,30 @@
+# Python
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+*.egg
+# Virtual environments
+venv/
+.env/
+env/
+.venv/
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+chroma_db/chroma.sqlite3
+instance/app.db
+# IDEs
+.vscode/
+.idea/
+# Misc
+dist/
+build/
+*.log
+*.pid
+*.seed
+*.whl
+
