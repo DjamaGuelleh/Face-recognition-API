@@ -131,21 +131,67 @@ class PersonService:
             if not matches:
                 return {"found": False, "message": "Aucune correspondance trouvée"}
             
-            # Récupérer les informations de la personne (maintenant l'ID est directement l'ID de la personne)
-            best_match = matches[0]
-            person_id = best_match["id"]  # ID direct de ChromaDB, pas depuis metadata
+            # Essayer plusieurs approches pour trouver la personne correspondante
+            for match in matches:
+                # Approche 1: Essayer avec l'ID direct de ChromaDB
+                direct_id = match["id"]
+                person = Person.query.filter_by(id=direct_id).first()
+                
+                if person:
+                    return {
+                        "found": True,
+                        "person": person.to_dict(),
+                        "similarity": match["similarity"]
+                    }
+                
+                # Approche 2: Essayer avec le vector_id
+                person = Person.query.filter_by(vector_id=direct_id).first()
+                
+                if person:
+                    return {
+                        "found": True,
+                        "person": person.to_dict(),
+                        "similarity": match["similarity"]
+                    }
+                
+                # Approche 3: Essayer avec person_id dans les métadonnées
+                if "metadata" in match and "person_id" in match["metadata"]:
+                    metadata_person_id = match["metadata"]["person_id"]
+                    person = Person.query.filter_by(id=metadata_person_id).first()
+                    
+                    if person:
+                        return {
+                            "found": True,
+                            "person": person.to_dict(),
+                            "similarity": match["similarity"]
+                        }
+                
+                # Approche 4: Essayer de trouver par le nom si disponible
+                if "metadata" in match and "name" in match["metadata"]:
+                    name = match["metadata"]["name"]
+                    persons = Person.query.filter_by(name=name).all()
+                    
+                    if persons:
+                        # S'il y a plusieurs personnes avec le même nom, 
+                        # prenez la première comme approximation
+                        return {
+                            "found": True,
+                            "person": persons[0].to_dict(),
+                            "similarity": match["similarity"],
+                            "note": "Identifié par le nom, vérifiez l'exactitude"
+                        }
             
-            person = Person.query.filter_by(id=person_id).first()
+            # Si aucune approche n'a fonctionné, enregistrez des informations de débogage
+            logger.warning(f"Aucune personne trouvée dans la base de données malgré {len(matches)} correspondances dans ChromaDB")
+            if matches:
+                best_match = matches[0]
+                logger.info(f"Meilleure correspondance - ID: {best_match['id']}, Métadonnées: {best_match.get('metadata', {})}")
+                
+                # Vérifier toutes les personnes en base
+                all_persons = Person.query.all()
+                logger.info(f"Personnes en base de données: {[{'id': p.id, 'vector_id': p.vector_id, 'name': p.name} for p in all_persons]}")
             
-            if not person:
-                logger.warning(f"Personne {person_id} non trouvée dans la base de données malgré correspondance dans ChromaDB")
-                return {"found": False, "message": "Personne non trouvée dans la base de données"}
-            
-            return {
-                "found": True,
-                "person": person.to_dict(),
-                "similarity": best_match["similarity"]
-            }
+            return {"found": False, "message": "Personne non trouvée dans la base de données"}
             
         except Exception as e:
             logger.error(f"Erreur lors de la recherche de la personne: {e}")
