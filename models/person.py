@@ -1,7 +1,7 @@
-from datetime import datetime,timezone
+# models/person.py
+from datetime import datetime
 from .database import db
 import uuid
-
 
 class Person(db.Model):
     """Modèle de données pour une personne"""
@@ -13,22 +13,46 @@ class Person(db.Model):
     nationality = db.Column(db.String(50), nullable=False)
     photo_path = db.Column(db.String(255), nullable=False)
     vector_id = db.Column(db.String(36), unique=True, nullable=False)
-    created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
-    updated_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+    
+    # Chemins vers les images d'empreintes digitales
+    fingerprint_right_path = db.Column(db.String(255), nullable=True)
+    fingerprint_left_path = db.Column(db.String(255), nullable=True)
+    fingerprint_thumbs_path = db.Column(db.String(255), nullable=True)
+    
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __repr__(self):
         return f"<Person {self.name}, {self.age} ans>"
     
     def to_dict(self):
         """Convertit l'objet en dictionnaire pour l'API"""
-        return {
+        person_dict = {
             "id": self.id,
             "name": self.name,
             "age": self.age,
             "gender": self.gender,
             "nationality": self.nationality,
             "photo_path": self.photo_path,
-            "vector_id": self.vector_id,  
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()
         }
+        
+        # Ajouter les informations sur les empreintes si elles existent
+        has_fingerprints = False
+        
+        if self.fingerprint_right_path:
+            person_dict["fingerprint_right_path"] = self.fingerprint_right_path
+            has_fingerprints = True
+            
+        if self.fingerprint_left_path:
+            person_dict["fingerprint_left_path"] = self.fingerprint_left_path
+            has_fingerprints = True
+            
+        if self.fingerprint_thumbs_path:
+            person_dict["fingerprint_thumbs_path"] = self.fingerprint_thumbs_path
+            has_fingerprints = True
+        
+        person_dict["has_fingerprints"] = has_fingerprints
+        
+        return person_dict

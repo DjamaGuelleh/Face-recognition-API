@@ -1,3 +1,4 @@
+# config.py
 import os
 from dotenv import load_dotenv
 
@@ -18,15 +19,18 @@ class Config:
     CHROMA_DB_DIR = os.environ.get("CHROMA_DB_DIR") or "chroma_db"
     CHROMA_COLLECTION = os.environ.get("CHROMA_COLLECTION") or "face_embeddings"
     
-    # Configuration des téléchargements
+    # Configuration des dossiers de téléchargements
     UPLOAD_FOLDER = os.environ.get("UPLOAD_FOLDER") or "static/uploads"
-    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+    FINGERPRINTS_FOLDER = os.environ.get("FINGERPRINTS_FOLDER") or "static/fingerprints"
+    ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'bmp'}
     MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB
     
     # Configuration InsightFace
     INSIGHTFACE_MODEL = os.environ.get("INSIGHTFACE_MODEL") or "buffalo_l"
-    SIMILARITY_THRESHOLD = float(os.environ.get("SIMILARITY_THRESHOLD") or 0.9)
+    SIMILARITY_THRESHOLD = float(os.environ.get("SIMILARITY_THRESHOLD") or 0.7)
     
-    # Crée le dossier d'upload s'il n'existe pas
+    # Crée les dossiers s'ils n'existent pas
     if not os.path.exists(UPLOAD_FOLDER):
         os.makedirs(UPLOAD_FOLDER)
+    if not os.path.exists(FINGERPRINTS_FOLDER):
+        os.makedirs(FINGERPRINTS_FOLDER)

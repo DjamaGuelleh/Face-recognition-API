@@ -1,3 +1,4 @@
+# app.py
 import os
 import logging
 from flask import Flask, jsonify
@@ -44,7 +45,8 @@ def create_app(config_class='config.Config'):
     person_service = PersonService(
         vector_store=vector_store,
         face_service=face_service,
-        upload_folder=app.config['UPLOAD_FOLDER']
+        upload_folder=app.config['UPLOAD_FOLDER'],
+        fingerprints_folder=app.config['FINGERPRINTS_FOLDER']
     )
     
     # Rendre les services accessibles dans l'application
@@ -60,8 +62,8 @@ def create_app(config_class='config.Config'):
     @app.route('/')
     def index():
         return jsonify({
-            "message": "API de reconnaissance faciale",
-            "version": "1.0.0"
+            "message": "API de reconnaissance faciale et de stockage d'empreintes digitales",
+            "version": "1.1.0"
         })
     
     # Gestionnaire d'erreur pour les routes non trouvées
