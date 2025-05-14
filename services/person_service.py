@@ -3,6 +3,7 @@ import logging
 import os
 import uuid
 from datetime import datetime
+from sqlalchemy.exc import SQLAlchemyError
 
 from models.database import db
 from models.person import Person
@@ -122,6 +123,13 @@ class PersonService:
             logger.info(f"Personne créée avec succès: {name} (ID: {person_id})")
             return person
             
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"Erreur de base de données lors de la création de la personne: {e}")
+            # Nettoyage en cas d'erreur
+            if 'image_path' in locals() and os.path.exists(image_path):
+                os.remove(image_path)
+            return None
         except Exception as e:
             db.session.rollback()
             logger.error(f"Erreur lors de la création de la personne: {e}")
@@ -239,6 +247,12 @@ class PersonService:
             
             return {"found": False, "message": "Personne non trouvée dans la base de données"}
             
+        except SQLAlchemyError as e:
+            logger.error(f"Erreur de base de données lors de la recherche de la personne: {e}")
+            # Nettoyer le fichier temporaire en cas d'erreur
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.remove(temp_path)
+            return {"found": False, "message": f"Erreur de base de données: {str(e)}"}
         except Exception as e:
             logger.error(f"Erreur lors de la recherche de la personne: {e}")
             # Nettoyer le fichier temporaire en cas d'erreur
@@ -249,6 +263,7 @@ class PersonService:
     def get_all_persons(self):
         """Récupère toutes les personnes dans la base de données"""
         try:
+            # Pour PostgreSQL, on peut utiliser la même requête
             persons = Person.query.all()
             result = []
             
@@ -268,8 +283,48 @@ class PersonService:
                 result.append(person_dict)
                 
             return result
+        except SQLAlchemyError as e:
+            logger.error(f"Erreur de base de données lors de la récupération des personnes: {e}")
+            return []
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des personnes: {e}")
+            return []
+    
+    def get_persons_with_fingerprints(self):
+        """Récupère toutes les personnes qui ont des empreintes digitales"""
+        try:
+            # Pour PostgreSQL, on utilise une syntaxe compatible
+            persons = Person.query.filter(
+                db.or_(
+                    Person.fingerprint_right_path.isnot(None),
+                    Person.fingerprint_left_path.isnot(None),
+                    Person.fingerprint_thumbs_path.isnot(None)
+                )
+            ).all()
+            
+            result = []
+            
+            for person in persons:
+                person_dict = person.to_dict()
+                
+                # Ajouter les URLs pour accéder aux empreintes
+                if person.fingerprint_right_path:
+                    person_dict["fingerprint_right_url"] = f"/api/persons/{person.id}/fingerprint/right"
+                
+                if person.fingerprint_left_path:
+                    person_dict["fingerprint_left_url"] = f"/api/persons/{person.id}/fingerprint/left"
+                
+                if person.fingerprint_thumbs_path:
+                    person_dict["fingerprint_thumbs_url"] = f"/api/persons/{person.id}/fingerprint/thumbs"
+                
+                result.append(person_dict)
+                
+            return result
+        except SQLAlchemyError as e:
+            logger.error(f"Erreur de base de données lors de la récupération des personnes avec empreintes: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération des personnes avec empreintes: {e}")
             return []
     
     def get_person_by_id(self, person_id):
@@ -293,6 +348,9 @@ class PersonService:
                 person_dict["fingerprint_thumbs_url"] = f"/api/persons/{person.id}/fingerprint/thumbs"
                 
             return person_dict
+        except SQLAlchemyError as e:
+            logger.error(f"Erreur de base de données lors de la récupération de la personne: {e}")
+            return None
         except Exception as e:
             logger.error(f"Erreur lors de la récupération de la personne: {e}")
             return None
@@ -329,6 +387,10 @@ class PersonService:
             logger.info(f"Personne supprimée avec succès: {person_id}")
             return True
             
+        except SQLAlchemyError as e:
+            db.session.rollback()
+            logger.error(f"Erreur de base de données lors de la suppression de la personne: {e}")
+            return False
         except Exception as e:
             db.session.rollback()
             logger.error(f"Erreur lors de la suppression de la personne: {e}")

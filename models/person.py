@@ -11,13 +11,13 @@ class Person(db.Model):
     age = db.Column(db.Integer, nullable=False)
     gender = db.Column(db.String(20), nullable=False)
     nationality = db.Column(db.String(50), nullable=False)
-    photo_path = db.Column(db.String(255), nullable=False)
+    photo_path = db.Column(db.Text, nullable=False)  # Changé de String à Text
     vector_id = db.Column(db.String(36), unique=True, nullable=False)
     
     # Chemins vers les images d'empreintes digitales
-    fingerprint_right_path = db.Column(db.String(255), nullable=True)
-    fingerprint_left_path = db.Column(db.String(255), nullable=True)
-    fingerprint_thumbs_path = db.Column(db.String(255), nullable=True)
+    fingerprint_right_path = db.Column(db.Text, nullable=True)  # Changé de String à Text
+    fingerprint_left_path = db.Column(db.Text, nullable=True)   # Changé de String à Text
+    fingerprint_thumbs_path = db.Column(db.Text, nullable=True) # Changé de String à Text
     
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

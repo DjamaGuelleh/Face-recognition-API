@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: face_recognition_db
+    restart: always
+    environment:
+      POSTGRES_USER: face_user
+      POSTGRES_PASSWORD: mlkiop
+      POSTGRES_DB: face_recognition
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - face_network
+
+  # Optionnel: interface d'administration pour PostgreSQL
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: face_recognition_pgadmin
+    restart: always
+    environment:
+      PGADMIN_DEFAULT_EMAIL: djeantov@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: mlkiop
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    networks:
+      - face_network
+
+networks:
+  face_network:
+    driver: bridge
+
+volumes:
+  postgres_data:

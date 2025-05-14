@@ -1,4 +1,3 @@
-# config.py
 import os
 from dotenv import load_dotenv
 
@@ -10,12 +9,19 @@ class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY") or "clé-secrète-par-défaut"
     DEBUG = os.environ.get("DEBUG", "False").lower() == "true"
     
-    # Configuration de la base de données SQLite
-    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URI") or "sqlite:///app.db"
+    # Configuration de la base de données PostgreSQL
+    DB_USER = os.environ.get("DB_USER") or "face_user"
+    DB_PASSWORD = os.environ.get("DB_PASSWORD") or "mlkiop"
+    DB_HOST = os.environ.get("DB_HOST") or "localhost"
+    DB_PORT = os.environ.get("DB_PORT") or "5432"
+    DB_NAME = os.environ.get("DB_NAME") or "face_recognition"
+    
+    SQLALCHEMY_DATABASE_URI = os.environ.get("DATABASE_URI") or \
+        f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ECHO = DEBUG
     
-    # Configuration du stockage vectoriel ChromaDB
+    # Reste de votre configuration existante...
     CHROMA_DB_DIR = os.environ.get("CHROMA_DB_DIR") or "chroma_db"
     CHROMA_COLLECTION = os.environ.get("CHROMA_COLLECTION") or "face_embeddings"
     
