@@ -33,7 +33,7 @@ class Config:
     
     # Configuration InsightFace
     INSIGHTFACE_MODEL = os.environ.get("INSIGHTFACE_MODEL") or "buffalo_l"
-    SIMILARITY_THRESHOLD = float(os.environ.get("SIMILARITY_THRESHOLD") or 0.7)
+    SIMILARITY_THRESHOLD = float(os.environ.get("SIMILARITY_THRESHOLD") or 0.6)
     
     # Crée les dossiers s'ils n'existent pas
     if not os.path.exists(UPLOAD_FOLDER):
