@@ -4,6 +4,7 @@ alembic==1.15.2
 annotated-types==0.7.0
 anyio==4.9.0
 asgiref==3.8.1
+asyncpg==0.30.0
 attrs==25.3.0
 backoff==2.2.1
 bcrypt==4.3.0
@@ -86,6 +87,7 @@ pillow==11.2.1
 posthog==4.0.1
 prettytable==3.16.0
 protobuf==5.29.4
+psycopg2-binary==2.9.10
 pyasn1==0.6.1
 pyasn1_modules==0.4.2
 pydantic==2.11.4
