@@ -2,8 +2,10 @@
 import logging
 import os
 import uuid
+import base64
 from datetime import datetime
 from sqlalchemy.exc import SQLAlchemyError
+import mimetypes
 
 from models.database import db
 from models.person import Person
@@ -49,18 +51,18 @@ class PersonService:
             # Générer un identifiant unique pour la personne
             person_id = str(uuid.uuid4())
             
-            # Sauvegarder l'image du visage
-            filename = f"{person_id}_{image_file.filename}"
-            image_path = os.path.join(self.upload_folder, filename)
-            image_file.save(image_path)
+            # Sauvegarder temporairement l'image du visage pour extraction d'embedding
+            temp_filename = f"temp_{uuid.uuid4()}_{image_file.filename}"
+            temp_path = os.path.join(self.upload_folder, temp_filename)
+            image_file.save(temp_path)
             
             # Extraire l'embedding du visage
-            embedding, bbox, score = self.face_service.extract_embedding(image_path)
+            embedding, bbox, score = self.face_service.extract_embedding(temp_path)
             
             if embedding is None:
                 logger.error(f"Impossible d'extraire l'embedding du visage pour {name}")
-                if os.path.exists(image_path):
-                    os.remove(image_path)
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
                 return None
             
             # Métadonnées pour ChromaDB
@@ -75,33 +77,39 @@ class PersonService:
             # Ajouter l'embedding à ChromaDB
             if not self.vector_store.add_embedding(person_id, embedding, metadata):
                 logger.error(f"Erreur lors de l'ajout de l'embedding pour {name}")
-                if os.path.exists(image_path):
-                    os.remove(image_path)
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
                 return None
             
-            # Initialiser les chemins des empreintes à None
-            fingerprint_right_path = None
-            fingerprint_left_path = None
-            fingerprint_thumbs_path = None
+            # Lire les fichiers en binaire pour les stocker en base de données
+            photo_data = None
+            photo_mime_type = None
+            if image_file:
+                # Reset file pointer to beginning
+                image_file.seek(0)
+                photo_data = image_file.read()
+                photo_mime_type = mimetypes.guess_type(image_file.filename)[0] or 'application/octet-stream'
             
-            # Traiter les empreintes si fournies
+            fingerprint_right_data = None
+            fingerprint_right_mime_type = None
             if fingerprint_right:
-                fp_right_filename = f"{person_id}_right_{fingerprint_right.filename}"
-                fingerprint_right_path = os.path.join(self.fingerprints_folder, fp_right_filename)
-                fingerprint_right.save(fingerprint_right_path)
-                logger.info(f"Empreinte main droite sauvegardée pour {name}: {fingerprint_right_path}")
+                fingerprint_right.seek(0)
+                fingerprint_right_data = fingerprint_right.read()
+                fingerprint_right_mime_type = mimetypes.guess_type(fingerprint_right.filename)[0] or 'application/octet-stream'
             
+            fingerprint_left_data = None
+            fingerprint_left_mime_type = None
             if fingerprint_left:
-                fp_left_filename = f"{person_id}_left_{fingerprint_left.filename}"
-                fingerprint_left_path = os.path.join(self.fingerprints_folder, fp_left_filename)
-                fingerprint_left.save(fingerprint_left_path)
-                logger.info(f"Empreinte main gauche sauvegardée pour {name}: {fingerprint_left_path}")
+                fingerprint_left.seek(0)
+                fingerprint_left_data = fingerprint_left.read()
+                fingerprint_left_mime_type = mimetypes.guess_type(fingerprint_left.filename)[0] or 'application/octet-stream'
             
+            fingerprint_thumbs_data = None
+            fingerprint_thumbs_mime_type = None
             if fingerprint_thumbs:
-                fp_thumbs_filename = f"{person_id}_thumbs_{fingerprint_thumbs.filename}"
-                fingerprint_thumbs_path = os.path.join(self.fingerprints_folder, fp_thumbs_filename)
-                fingerprint_thumbs.save(fingerprint_thumbs_path)
-                logger.info(f"Empreinte des pouces sauvegardée pour {name}: {fingerprint_thumbs_path}")
+                fingerprint_thumbs.seek(0)
+                fingerprint_thumbs_data = fingerprint_thumbs.read()
+                fingerprint_thumbs_mime_type = mimetypes.guess_type(fingerprint_thumbs.filename)[0] or 'application/octet-stream'
             
             # Créer la personne dans la base de données
             person = Person(
@@ -110,16 +118,26 @@ class PersonService:
                 age=age,
                 gender=gender,
                 nationality=nationality,
-                photo_path=image_path,
                 vector_id=person_id,
-                fingerprint_right_path=fingerprint_right_path,
-                fingerprint_left_path=fingerprint_left_path,
-                fingerprint_thumbs_path=fingerprint_thumbs_path
+                
+                # Nouvelles données binaires
+                photo_data=photo_data,
+                photo_mime_type=photo_mime_type,
+                fingerprint_right_data=fingerprint_right_data,
+                fingerprint_right_mime_type=fingerprint_right_mime_type,
+                fingerprint_left_data=fingerprint_left_data,
+                fingerprint_left_mime_type=fingerprint_left_mime_type,
+                fingerprint_thumbs_data=fingerprint_thumbs_data,
+                fingerprint_thumbs_mime_type=fingerprint_thumbs_mime_type
             )
             
             db.session.add(person)
             db.session.commit()
             
+            # Supprimer l'image temporaire
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+                
             logger.info(f"Personne créée avec succès: {name} (ID: {person_id})")
             return person
             
@@ -127,15 +145,15 @@ class PersonService:
             db.session.rollback()
             logger.error(f"Erreur de base de données lors de la création de la personne: {e}")
             # Nettoyage en cas d'erreur
-            if 'image_path' in locals() and os.path.exists(image_path):
-                os.remove(image_path)
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.remove(temp_path)
             return None
         except Exception as e:
             db.session.rollback()
             logger.error(f"Erreur lors de la création de la personne: {e}")
             # Nettoyage en cas d'erreur
-            if 'image_path' in locals() and os.path.exists(image_path):
-                os.remove(image_path)
+            if 'temp_path' in locals() and os.path.exists(temp_path):
+                os.remove(temp_path)
             return None
             
     def find_person_by_face(self, image_file, threshold=0.7):
@@ -178,21 +196,10 @@ class PersonService:
                 person = Person.query.filter_by(id=direct_id).first()
                 
                 if person:
-                    # Ajouter les URLs pour accéder aux empreintes
-                    person_dict = person.to_dict()
-                    
-                    if person.fingerprint_right_path:
-                        person_dict["fingerprint_right_url"] = f"/api/persons/{person.id}/fingerprint/right"
-                    
-                    if person.fingerprint_left_path:
-                        person_dict["fingerprint_left_url"] = f"/api/persons/{person.id}/fingerprint/left"
-                    
-                    if person.fingerprint_thumbs_path:
-                        person_dict["fingerprint_thumbs_url"] = f"/api/persons/{person.id}/fingerprint/thumbs"
-                    
+                    # Inclure les données d'image directement
                     return {
                         "found": True,
-                        "person": person_dict,
+                        "person": person.to_dict(include_image_data=True),
                         "similarity": match["similarity"]
                     }
                 
@@ -200,21 +207,10 @@ class PersonService:
                 person = Person.query.filter_by(vector_id=direct_id).first()
                 
                 if person:
-                    # Ajouter les URLs pour accéder aux empreintes
-                    person_dict = person.to_dict()
-                    
-                    if person.fingerprint_right_path:
-                        person_dict["fingerprint_right_url"] = f"/api/persons/{person.id}/fingerprint/right"
-                    
-                    if person.fingerprint_left_path:
-                        person_dict["fingerprint_left_url"] = f"/api/persons/{person.id}/fingerprint/left"
-                    
-                    if person.fingerprint_thumbs_path:
-                        person_dict["fingerprint_thumbs_url"] = f"/api/persons/{person.id}/fingerprint/thumbs"
-                    
+                    # Inclure les données d'image directement
                     return {
                         "found": True,
-                        "person": person_dict,
+                        "person": person.to_dict(include_image_data=True),
                         "similarity": match["similarity"]
                     }
                 
@@ -224,21 +220,10 @@ class PersonService:
                     person = Person.query.filter_by(id=metadata_person_id).first()
                     
                     if person:
-                        # Ajouter les URLs pour accéder aux empreintes
-                        person_dict = person.to_dict()
-                        
-                        if person.fingerprint_right_path:
-                            person_dict["fingerprint_right_url"] = f"/api/persons/{person.id}/fingerprint/right"
-                        
-                        if person.fingerprint_left_path:
-                            person_dict["fingerprint_left_url"] = f"/api/persons/{person.id}/fingerprint/left"
-                        
-                        if person.fingerprint_thumbs_path:
-                            person_dict["fingerprint_thumbs_url"] = f"/api/persons/{person.id}/fingerprint/thumbs"
-                        
+                        # Inclure les données d'image directement
                         return {
                             "found": True,
-                            "person": person_dict,
+                            "person": person.to_dict(include_image_data=True),
                             "similarity": match["similarity"]
                         }
             
@@ -260,66 +245,72 @@ class PersonService:
                 os.remove(temp_path)
             return {"found": False, "message": f"Erreur interne: {str(e)}"}
     
-    def get_all_persons(self):
-        """Récupère toutes les personnes dans la base de données"""
+    def get_all_persons(self, include_images=False, include_fingerprints=False):
+        """
+        Récupère toutes les personnes dans la base de données
+        
+        Args:
+            include_images: Si True, inclut les photos de visage encodées en base64
+            include_fingerprints: Si True, inclut aussi les empreintes digitales
+        
+        Returns:
+            list: Liste des personnes
+        """
         try:
-            # Pour PostgreSQL, on peut utiliser la même requête
             persons = Person.query.all()
-            result = []
-            
-            for person in persons:
-                person_dict = person.to_dict()
-                
-                # Ajouter les URLs pour accéder aux empreintes
-                if person.fingerprint_right_path:
-                    person_dict["fingerprint_right_url"] = f"/api/persons/{person.id}/fingerprint/right"
-                
-                if person.fingerprint_left_path:
-                    person_dict["fingerprint_left_url"] = f"/api/persons/{person.id}/fingerprint/left"
-                
-                if person.fingerprint_thumbs_path:
-                    person_dict["fingerprint_thumbs_url"] = f"/api/persons/{person.id}/fingerprint/thumbs"
-                
-                result.append(person_dict)
-                
-            return result
+            return [person.to_dict(
+                include_image_data=include_images, 
+                include_fingerprints=include_fingerprints
+            ) for person in persons]
         except SQLAlchemyError as e:
             logger.error(f"Erreur de base de données lors de la récupération des personnes: {e}")
             return []
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des personnes: {e}")
             return []
+
+    def get_person_by_id(self, person_id, include_images=True, include_fingerprints=True):
+        """
+        Récupère une personne par son ID
+        
+        Args:
+            person_id: ID de la personne
+            include_images: Si True, inclut la photo de visage encodée en base64
+            include_fingerprints: Si True, inclut aussi les empreintes digitales
+        
+        Returns:
+            dict: Informations de la personne ou None
+        """
+        try:
+            person = Person.query.filter_by(id=person_id).first()
+            
+            if not person:
+                return None
+                
+            return person.to_dict(
+                include_image_data=include_images,
+                include_fingerprints=include_fingerprints
+            )
+        except SQLAlchemyError as e:
+            logger.error(f"Erreur de base de données lors de la récupération de la personne: {e}")
+            return None
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération de la personne: {e}")
+            return None
     
-    def get_persons_with_fingerprints(self):
+    def get_persons_with_fingerprints(self, include_images=False):
         """Récupère toutes les personnes qui ont des empreintes digitales"""
         try:
             # Pour PostgreSQL, on utilise une syntaxe compatible
             persons = Person.query.filter(
                 db.or_(
-                    Person.fingerprint_right_path.isnot(None),
-                    Person.fingerprint_left_path.isnot(None),
-                    Person.fingerprint_thumbs_path.isnot(None)
+                    Person.fingerprint_right_data.isnot(None),
+                    Person.fingerprint_left_data.isnot(None),
+                    Person.fingerprint_thumbs_data.isnot(None)
                 )
             ).all()
             
-            result = []
-            
-            for person in persons:
-                person_dict = person.to_dict()
-                
-                # Ajouter les URLs pour accéder aux empreintes
-                if person.fingerprint_right_path:
-                    person_dict["fingerprint_right_url"] = f"/api/persons/{person.id}/fingerprint/right"
-                
-                if person.fingerprint_left_path:
-                    person_dict["fingerprint_left_url"] = f"/api/persons/{person.id}/fingerprint/left"
-                
-                if person.fingerprint_thumbs_path:
-                    person_dict["fingerprint_thumbs_url"] = f"/api/persons/{person.id}/fingerprint/thumbs"
-                
-                result.append(person_dict)
-                
-            return result
+            return [person.to_dict(include_image_data=include_images) for person in persons]
         except SQLAlchemyError as e:
             logger.error(f"Erreur de base de données lors de la récupération des personnes avec empreintes: {e}")
             return []
@@ -327,27 +318,24 @@ class PersonService:
             logger.error(f"Erreur lors de la récupération des personnes avec empreintes: {e}")
             return []
     
-    def get_person_by_id(self, person_id):
-        """Récupère une personne par son ID"""
+    def get_person_by_id(self, person_id, include_images=False):
+        """
+        Récupère une personne par son ID
+        
+        Args:
+            person_id: ID de la personne
+            include_images: Si True, inclut les images encodées en base64
+        
+        Returns:
+            dict: Informations de la personne ou None
+        """
         try:
             person = Person.query.filter_by(id=person_id).first()
             
             if not person:
                 return None
                 
-            person_dict = person.to_dict()
-            
-            # Ajouter les URLs pour accéder aux empreintes
-            if person.fingerprint_right_path:
-                person_dict["fingerprint_right_url"] = f"/api/persons/{person.id}/fingerprint/right"
-            
-            if person.fingerprint_left_path:
-                person_dict["fingerprint_left_url"] = f"/api/persons/{person.id}/fingerprint/left"
-            
-            if person.fingerprint_thumbs_path:
-                person_dict["fingerprint_thumbs_url"] = f"/api/persons/{person.id}/fingerprint/thumbs"
-                
-            return person_dict
+            return person.to_dict(include_image_data=include_images)
         except SQLAlchemyError as e:
             logger.error(f"Erreur de base de données lors de la récupération de la personne: {e}")
             return None
@@ -365,20 +353,6 @@ class PersonService:
             
             # Supprimer l'embedding
             self.vector_store.delete_embedding(person.vector_id)
-            
-            # Supprimer l'image du visage
-            if os.path.exists(person.photo_path):
-                os.remove(person.photo_path)
-            
-            # Supprimer les images d'empreintes
-            if person.fingerprint_right_path and os.path.exists(person.fingerprint_right_path):
-                os.remove(person.fingerprint_right_path)
-            
-            if person.fingerprint_left_path and os.path.exists(person.fingerprint_left_path):
-                os.remove(person.fingerprint_left_path)
-            
-            if person.fingerprint_thumbs_path and os.path.exists(person.fingerprint_thumbs_path):
-                os.remove(person.fingerprint_thumbs_path)
             
             # Supprimer la personne
             db.session.delete(person)
