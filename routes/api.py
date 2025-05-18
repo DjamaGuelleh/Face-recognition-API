@@ -5,6 +5,7 @@ import os
 import base64
 
 from models.person import Person
+from routes.dashboard import log_identification
 
 logger = logging.getLogger(__name__)
 
@@ -138,6 +139,7 @@ def get_fingerprint(person_id, type):
         logger.error(f"Erreur lors de la récupération de l'empreinte: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
+
 @api.route('/identify', methods=['POST'])
 def identify_person():
     """
@@ -147,11 +149,11 @@ def identify_person():
     try:
         if 'photo' not in request.files:
             return jsonify({"error": "Aucune photo fournie"}), 400
-            
+           
         photo = request.files['photo']
         if photo.filename == '':
             return jsonify({"error": "Nom de fichier vide"}), 400
-            
+           
         # Récupérer threshold optionnel
         threshold = request.form.get('threshold')
         if threshold:
@@ -163,16 +165,31 @@ def identify_person():
                 return jsonify({"error": "Le seuil doit être un nombre entre 0 et 1"}), 400
         else:
             threshold = current_app.config['SIMILARITY_THRESHOLD']
-            
+           
         # Rechercher la personne
         person_service = current_app.person_service
         result = person_service.find_person_by_face(photo, threshold)
         
+        # NOUVEAU: Enregistrer l'activité d'identification
+        if result.get("found", False) and "person" in result:
+            # Log de l'identification réussie
+            log_identification(
+                person_id=result["person"]["id"],
+                success=True,
+                details={"similarity": result.get("similarity", 0)}
+            )
+        else:
+            # Log de l'identification échouée
+            log_identification(
+                success=False,
+                details={"message": result.get("message", "Aucune correspondance trouvée")}
+            )
+       
         # Si une personne est trouvée, récupérer son image
         if result.get("found", False) and "person" in result:
             person_data = result["person"]
             photo_path = person_data.get("photo_path")
-            
+           
             if photo_path and os.path.exists(photo_path):
                 # Déterminer le type MIME de l'image
                 file_ext = os.path.splitext(photo_path)[1].lower()
@@ -182,19 +199,26 @@ def identify_person():
                     '.png': 'image/png',
                     '.gif': 'image/gif'
                 }.get(file_ext, 'application/octet-stream')
-                
+               
                 # Lire l'image et l'encoder en base64
                 with open(photo_path, "rb") as image_file:
                     encoded_image = base64.b64encode(image_file.read()).decode('utf-8')
-                    
+                   
                 # Ajouter l'image encodée et son type MIME au résultat
                 result["person"]["photo_data"] = encoded_image
                 result["person"]["photo_mime_type"] = mime_type
-        
+       
         return jsonify(result), 200
-        
+       
     except Exception as e:
         logger.error(f"Erreur lors de l'identification de la personne: {e}")
+        
+        # NOUVEAU: Log de l'erreur d'identification
+        log_identification(
+            success=False,
+            details={"error": str(e)}
+        )
+        
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
 @api.route('/persons', methods=['GET'])

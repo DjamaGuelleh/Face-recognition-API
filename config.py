@@ -40,3 +40,8 @@ class Config:
         os.makedirs(UPLOAD_FOLDER)
     if not os.path.exists(FINGERPRINTS_FOLDER):
         os.makedirs(FINGERPRINTS_FOLDER)
+
+    # Configuration pour les journaux d'activité
+    LOG_DIR = os.environ.get("LOG_DIR") or "logs"
+    if not os.path.exists(LOG_DIR):
+        os.makedirs(LOG_DIR)
