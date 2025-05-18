@@ -318,30 +318,7 @@ class PersonService:
             logger.error(f"Erreur lors de la récupération des personnes avec empreintes: {e}")
             return []
     
-    def get_person_by_id(self, person_id, include_images=False):
-        """
-        Récupère une personne par son ID
-        
-        Args:
-            person_id: ID de la personne
-            include_images: Si True, inclut les images encodées en base64
-        
-        Returns:
-            dict: Informations de la personne ou None
-        """
-        try:
-            person = Person.query.filter_by(id=person_id).first()
-            
-            if not person:
-                return None
-                
-            return person.to_dict(include_image_data=include_images)
-        except SQLAlchemyError as e:
-            logger.error(f"Erreur de base de données lors de la récupération de la personne: {e}")
-            return None
-        except Exception as e:
-            logger.error(f"Erreur lors de la récupération de la personne: {e}")
-            return None
+
     
     def delete_person(self, person_id):
         """Supprime une personne et son embedding"""
