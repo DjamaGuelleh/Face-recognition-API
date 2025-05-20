@@ -278,20 +278,15 @@ def get_person(person_id):
 def get_persons_with_fingerprints():
     """
     Endpoint pour récupérer toutes les personnes ayant des empreintes digitales
-    
-    Query parameters:
-    - include_images: Si "true", inclut les images encodées en base64 (default: "false")
-    - include_fingerprints: Si "true", inclut aussi les empreintes digitales (default: "false")
     """
     try:
-        # Paramètres pour inclure ou non les images et empreintes
         include_images = request.args.get('include_images', 'false').lower() in ('true', '1', 'yes')
         include_fingerprints = request.args.get('include_fingerprints', 'false').lower() in ('true', '1', 'yes')
         
         person_service = current_app.person_service
         persons = person_service.get_persons_with_fingerprints(
             include_images=include_images,
-            include_fingerprints=include_fingerprints
+            include_fingerprints=include_fingerprints  # S'assurer que ce paramètre est passé
         )
         return jsonify({"persons": persons}), 200
     except Exception as e:

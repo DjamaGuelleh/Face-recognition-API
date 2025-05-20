@@ -298,8 +298,37 @@ class PersonService:
             logger.error(f"Erreur lors de la récupération de la personne: {e}")
             return None
     
-    def get_persons_with_fingerprints(self, include_images=False):
-        """Récupère toutes les personnes qui ont des empreintes digitales"""
+    # def get_persons_with_fingerprints(self, include_images=False):
+    #     """Récupère toutes les personnes qui ont des empreintes digitales"""
+    #     try:
+    #         # Pour PostgreSQL, on utilise une syntaxe compatible
+    #         persons = Person.query.filter(
+    #             db.or_(
+    #                 Person.fingerprint_right_data.isnot(None),
+    #                 Person.fingerprint_left_data.isnot(None),
+    #                 Person.fingerprint_thumbs_data.isnot(None)
+    #             )
+    #         ).all()
+    #         
+    #         return [person.to_dict(include_image_data=include_images) for person in persons]
+    #     except SQLAlchemyError as e:
+    #         logger.error(f"Erreur de base de données lors de la récupération des personnes avec empreintes: {e}")
+    #         return []
+    #     except Exception as e:
+    #         logger.error(f"Erreur lors de la récupération des personnes avec empreintes: {e}")
+    #         return []
+
+    def get_persons_with_fingerprints(self, include_images=False, include_fingerprints=False):
+        """
+        Récupère toutes les personnes qui ont des empreintes digitales
+        
+        Args:
+            include_images: Si True, inclut les photos encodées en base64
+            include_fingerprints: Si True, inclut les empreintes digitales encodées en base64
+        
+        Returns:
+            list: Liste des personnes avec empreintes
+        """
         try:
             # Pour PostgreSQL, on utilise une syntaxe compatible
             persons = Person.query.filter(
@@ -310,14 +339,13 @@ class PersonService:
                 )
             ).all()
             
-            return [person.to_dict(include_image_data=include_images) for person in persons]
-        except SQLAlchemyError as e:
-            logger.error(f"Erreur de base de données lors de la récupération des personnes avec empreintes: {e}")
-            return []
+            return [person.to_dict(
+                include_image_data=include_images,
+                include_fingerprints=include_fingerprints  # Ajout du paramètre
+            ) for person in persons]
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des personnes avec empreintes: {e}")
             return []
-    
 
     
     def delete_person(self, person_id):
