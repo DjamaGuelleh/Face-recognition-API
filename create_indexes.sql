@@ -1,88 +1,109 @@
--- create_indexes.sql
--- Optimisation des index pour l'API Face Recognition
+-- optimize_database_complete.sql
+-- Script complet d'optimisation pour l'API Face Recognition
+-- Version définitive - Tous les cas gérés
 
-\echo 'Création des index pour optimisation des performances...'
+\echo '========================================='
+\echo '   OPTIMISATION COMPLETE BASE DE DONNEES'
+\echo '========================================='
+\echo ''
 
--- 1. Index sur les colonnes de tri/filtrage principales
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_created_at 
-ON person(created_at);
+-- 1. SUPPRESSION DES INDEX EXISTANTS (si besoin de refaire)
+\echo '1. Nettoyage des anciens index...'
+DROP INDEX IF EXISTS idx_person_created_at;
+DROP INDEX IF EXISTS idx_person_updated_at;
+DROP INDEX IF EXISTS idx_person_gender;
+DROP INDEX IF EXISTS idx_person_nationality;
+DROP INDEX IF EXISTS idx_person_age;
+DROP INDEX IF EXISTS idx_person_gender_nationality;
+DROP INDEX IF EXISTS idx_person_age_gender;
+DROP INDEX IF EXISTS idx_person_created_gender;
+DROP INDEX IF EXISTS idx_person_created_nationality;
+DROP INDEX IF EXISTS idx_person_fingerprint_right;
+DROP INDEX IF EXISTS idx_person_fingerprint_left;
+DROP INDEX IF EXISTS idx_person_fingerprint_thumbs;
+DROP INDEX IF EXISTS idx_person_has_any_fingerprint;
+DROP INDEX IF EXISTS idx_person_created_date;
+DROP INDEX IF EXISTS idx_person_created_month;
+DROP INDEX IF EXISTS idx_person_created_week;
+DROP INDEX IF EXISTS idx_person_recent_first;
+DROP INDEX IF EXISTS idx_person_name_lower;
+DROP INDEX IF EXISTS idx_person_has_right_fingerprint;
+DROP INDEX IF EXISTS idx_person_has_left_fingerprint;
+DROP INDEX IF EXISTS idx_person_has_thumbs_fingerprint;
+DROP INDEX IF EXISTS idx_person_fingerprints_composite;
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_updated_at 
-ON person(updated_at);
+\echo '   Anciens index supprimés'
+\echo ''
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_gender 
-ON person(gender);
+-- 2. CREATION DES INDEX PRINCIPAUX
+\echo '2. Création des index principaux...'
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_nationality 
-ON person(nationality);
+-- Index sur les colonnes de tri/filtrage (API standard)
+CREATE INDEX idx_person_created_at ON person(created_at);
+CREATE INDEX idx_person_updated_at ON person(updated_at);
+CREATE INDEX idx_person_gender ON person(gender);
+CREATE INDEX idx_person_nationality ON person(nationality);
+CREATE INDEX idx_person_age ON person(age);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_age 
-ON person(age);
+\echo '   ✓ Index principaux créés'
 
--- 2. Index composites pour requêtes combinées (Dashboard)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_gender_nationality 
-ON person(gender, nationality);
+-- 3. INDEX COMPOSITES POUR DASHBOARD
+\echo '3. Création des index composites pour dashboard...'
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_age_gender 
-ON person(age, gender);
+CREATE INDEX idx_person_gender_nationality ON person(gender, nationality);
+CREATE INDEX idx_person_age_gender ON person(age, gender);
+CREATE INDEX idx_person_created_gender ON person(created_at, gender);
+CREATE INDEX idx_person_created_nationality ON person(created_at, nationality);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_created_gender 
-ON person(created_at, gender);
+\echo '   ✓ Index composites créés'
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_created_nationality 
-ON person(created_at, nationality);
+-- 4. INDEX POUR EMPREINTES DIGITALES (version corrigée)
+\echo '4. Création des index pour empreintes digitales...'
 
--- 3. Index pour les requêtes d'empreintes digitales
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_fingerprint_right 
-ON person(fingerprint_right_data) 
-WHERE fingerprint_right_data IS NOT NULL;
+-- Index booléens (pas sur les BLOB volumineux)
+CREATE INDEX idx_person_has_right_fingerprint ON person((fingerprint_right_data IS NOT NULL));
+CREATE INDEX idx_person_has_left_fingerprint ON person((fingerprint_left_data IS NOT NULL));
+CREATE INDEX idx_person_has_thumbs_fingerprint ON person((fingerprint_thumbs_data IS NOT NULL));
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_fingerprint_left 
-ON person(fingerprint_left_data) 
-WHERE fingerprint_left_data IS NOT NULL;
+-- Index composite pour with-fingerprints + tri
+CREATE INDEX idx_person_fingerprints_composite ON person(
+    (fingerprint_right_data IS NOT NULL OR 
+     fingerprint_left_data IS NOT NULL OR 
+     fingerprint_thumbs_data IS NOT NULL),
+    created_at DESC
+);
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_fingerprint_thumbs 
-ON person(fingerprint_thumbs_data) 
-WHERE fingerprint_thumbs_data IS NOT NULL;
+\echo '   ✓ Index empreintes digitales créés'
 
--- 4. Index partiel pour les personnes avec empreintes (optimise with-fingerprints)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_has_any_fingerprint 
-ON person(id, created_at DESC) 
-WHERE fingerprint_right_data IS NOT NULL 
-   OR fingerprint_left_data IS NOT NULL 
-   OR fingerprint_thumbs_data IS NOT NULL;
+-- 5. INDEX POUR STATISTIQUES TEMPORELLES
+\echo '5. Création des index pour statistiques temporelles...'
 
--- 5. Index pour les requêtes de statistiques temporelles
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_created_date 
-ON person(DATE(created_at));
+CREATE INDEX idx_person_created_date ON person(DATE(created_at));
+CREATE INDEX idx_person_created_month ON person(EXTRACT(YEAR FROM created_at), EXTRACT(MONTH FROM created_at));
+CREATE INDEX idx_person_created_week ON person(EXTRACT(YEAR FROM created_at), EXTRACT(WEEK FROM created_at));
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_created_month 
-ON person(EXTRACT(YEAR FROM created_at), EXTRACT(MONTH FROM created_at));
+\echo '   ✓ Index temporels créés'
 
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_created_week 
-ON person(EXTRACT(YEAR FROM created_at), EXTRACT(WEEK FROM created_at));
+-- 6. INDEX POUR PERFORMANCE GENERALE
+\echo '6. Création des index pour performance générale...'
 
--- 6. Index pour l'ordre par défaut des API (plus récents en premier)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_recent_first 
-ON person(created_at DESC, id);
+-- Index pour l'ordre par défaut des API (plus récents en premier)
+CREATE INDEX idx_person_recent_first ON person(created_at DESC, id);
 
--- 7. Index pour la recherche textuelle (si nécessaire)
-CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_person_name_lower 
-ON person(LOWER(name));
+-- Index pour la recherche textuelle (noms)
+CREATE INDEX idx_person_name_lower ON person(LOWER(name));
 
-\echo 'Index créés avec succès!'
+\echo '   ✓ Index de performance créés'
 
--- Vérifier l'espace utilisé par les index
-SELECT 
-    schemaname,
-    tablename,
-    indexname,
-    pg_size_pretty(pg_relation_size(indexrelid)) as index_size
-FROM pg_stat_user_indexes 
-WHERE tablename = 'person'
-ORDER BY pg_relation_size(indexrelid) DESC;
+-- 7. OPTIMISATION DES STATISTIQUES
+\echo '7. Optimisation des statistiques PostgreSQL...'
+
+-- Augmenter les statistiques pour de meilleures optimisations
+ALTER TABLE person ALTER COLUMN nationality SET STATISTICS 1000;
+ALTER TABLE person ALTER COLUMN gender SET STATISTICS 1000;
+ALTER TABLE person ALTER COLUMN age SET STATISTICS 500;
 
 -- Analyser la table pour mettre à jour les statistiques
 ANALYZE person;
 
-\echo 'Optimisation terminée!'
+\echo '   ✓ Statistiques optimisées'
