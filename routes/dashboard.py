@@ -99,17 +99,10 @@ def get_identification_logs(days=None):
 @dashboard.route('/stats', methods=['GET'])
 def get_stats():
     """
-    Endpoint pour récupérer les statistiques du tableau de bord de manière flexible
-    
-    Paramètres de requête:
-    - sections: Liste de sections séparées par des virgules ou 'all' (défaut)
-      Sections disponibles: volumetry, recent_activity, registration_evolution, demographics
-    
-    Exemple:
-    /api/dashboard/stats?sections=volumetry,demographics
+    Endpoint pour récupérer les statistiques du tableau de bord de manière flexible (CORRIGÉ)
     """
     try:
-        # Sections demandées (par défaut, toutes)
+        # Sections demandées
         requested_sections = request.args.get('sections', 'all')
         
         if requested_sections.lower() == 'all':
@@ -120,13 +113,13 @@ def get_stats():
         # Dictionnaire pour les statistiques
         stats = {}
         
-        # 1. Volumétrie (nombre total de personnes et taille des données)
+        # Obtenir les dates de référence
+        now = datetime.utcnow()
+        
+        # 1. Volumétrie (inchangé - semble correct)
         if 'volumetry' in sections:
-            # Nombre total de personnes - TOUTES les personnes
             total_persons = Person.query.count()
             
-            # Taille totale des données biométriques (en MB)
-            # Calcule la somme des tailles des données binaires pour TOUTES les personnes
             total_size_query = db.session.query(
                 func.coalesce(func.sum(func.length(Person.photo_data)), 0) +
                 func.coalesce(func.sum(func.length(Person.fingerprint_right_data)), 0) +
@@ -134,9 +127,8 @@ def get_stats():
                 func.coalesce(func.sum(func.length(Person.fingerprint_thumbs_data)), 0)
             ).scalar()
             
-            total_size_mb = round((total_size_query or 0) / (1024 * 1024), 2)  # Convertir en MB
+            total_size_mb = round((total_size_query or 0) / (1024 * 1024), 2)
             
-            # Compteur des personnes avec empreintes vs sans empreintes
             persons_with_fingerprints = Person.query.filter(
                 db.or_(
                     Person.fingerprint_right_data.isnot(None),
@@ -154,20 +146,16 @@ def get_stats():
                 "total_biometric_size_mb": total_size_mb
             }
         
-        # 2. Activité récente (ajouts et identifications) - TOUTES les personnes
+        # 2. Activité récente (inchangé - semble correct)
         if 'recent_activity' in sections:
-            # Obtenir les dates de référence
-            now = datetime.utcnow()
             yesterday = now - timedelta(days=1)
             last_week = now - timedelta(days=7)
             last_month = now - timedelta(days=30)
             
-            # Personnes ajoutées récemment - TOUTES les personnes
             persons_last_24h = Person.query.filter(Person.created_at >= yesterday).count()
             persons_last_7d = Person.query.filter(Person.created_at >= last_week).count()
             persons_last_30d = Person.query.filter(Person.created_at >= last_month).count()
             
-            # Identifications (depuis le journal d'activité)
             identifications_24h = get_identification_logs(1)
             identifications_7d = get_identification_logs(7)
             identifications_30d = get_identification_logs(30)
@@ -198,17 +186,14 @@ def get_stats():
                 }
             }
         
-        # 3. Évolution des inscriptions dans le temps - TOUTES les personnes
+        # 3. Évolution des inscriptions dans le temps (CORRIGÉ)
         if 'registration_evolution' in sections:
-            now = datetime.utcnow()
-            
-            # Par jour (derniers 30 jours) - TOUTES les personnes
+            # Par jour (derniers 30 jours) - CORRECT
             registrations_by_day = []
             for i in range(30, -1, -1):
                 date = now - timedelta(days=i)
                 date_str = date.strftime('%Y-%m-%d')
                 
-                # Compter les personnes créées ce jour-là
                 day_start = datetime(date.year, date.month, date.day, 0, 0, 0)
                 day_end = datetime(date.year, date.month, date.day, 23, 59, 59)
                 
@@ -222,19 +207,19 @@ def get_stats():
                     "count": count
                 })
             
-            # Par semaine (8 dernières semaines) - TOUTES les personnes
+            # Par semaine (8 dernières semaines) - CORRIGÉ
             registrations_by_week = []
-            for i in range(8):
-                end_date = now - timedelta(weeks=i)
-                start_date = end_date - timedelta(weeks=1)
+            for i in range(7, -1, -1):  # Changé de range(8) à range(7, -1, -1)
+                week_end = now - timedelta(weeks=i)
+                week_start = week_end - timedelta(days=7)
                 
-                # Obtenir le numéro de semaine ISO
-                week_num = end_date.isocalendar()[1]
-                year = end_date.isocalendar()[0]
+                # Obtenir le numéro de semaine ISO pour la fin de semaine
+                week_num = week_end.isocalendar()[1]
+                year = week_end.isocalendar()[0]
                 
                 count = Person.query.filter(
-                    Person.created_at >= start_date,
-                    Person.created_at < end_date
+                    Person.created_at >= week_start,
+                    Person.created_at < week_end
                 ).count()
                 
                 registrations_by_week.append({
@@ -242,32 +227,36 @@ def get_stats():
                     "count": count
                 })
             
-            # Inverser pour avoir l'ordre chronologique
-            registrations_by_week.reverse()
-            
-            # Par mois (12 derniers mois) - TOUTES les personnes
+            # Par mois (12 derniers mois) - COMPLÈTEMENT CORRIGÉ
             registrations_by_month = []
-            for i in range(12):
-                end_date = now - timedelta(days=30*i)
+            
+            # Générer les 12 derniers mois de façon correcte
+            for i in range(11, -1, -1):  # De 11 à 0 (12 mois)
+                # Calculer le mois cible
+                target_month = now.month - i
+                target_year = now.year
                 
-                # Déterminer le premier et dernier jour du mois
-                year = end_date.year
-                month = end_date.month
+                # Gérer le passage d'année
+                while target_month <= 0:
+                    target_month += 12
+                    target_year -= 1
                 
                 # Premier jour du mois
-                first_day = datetime(year, month, 1)
+                first_day = datetime(target_year, target_month, 1)
                 
                 # Premier jour du mois suivant
-                if month == 12:
-                    next_month = datetime(year + 1, 1, 1)
+                if target_month == 12:
+                    next_month_first = datetime(target_year + 1, 1, 1)
                 else:
-                    next_month = datetime(year, month + 1, 1)
+                    next_month_first = datetime(target_year, target_month + 1, 1)
                 
+                # Compter les personnes de ce mois
                 count = Person.query.filter(
                     Person.created_at >= first_day,
-                    Person.created_at < next_month
+                    Person.created_at < next_month_first
                 ).count()
                 
+                # Formater le nom du mois
                 month_name = first_day.strftime('%B %Y')
                 
                 registrations_by_month.append({
@@ -275,25 +264,20 @@ def get_stats():
                     "count": count
                 })
             
-            # Inverser pour avoir l'ordre chronologique
-            registrations_by_month.reverse()
-            
             stats['registration_evolution'] = {
                 "daily": registrations_by_day,
                 "weekly": registrations_by_week,
                 "monthly": registrations_by_month
             }
         
-        # 4. Données démographiques (genre et nationalité) - TOUTES les personnes
+        # 4. Données démographiques (inchangé - semble correct)
         if 'demographics' in sections:
-            # Distribution par genre - compter TOUTES les personnes
             gender_distribution = db.session.query(
                 Person.gender, func.count(Person.id)
             ).group_by(Person.gender).all()
             
             gender_stats = {gender: count for gender, count in gender_distribution}
             
-            # Distribution par nationalité (top 10) - compter TOUTES les personnes
             nationality_distribution = db.session.query(
                 Person.nationality, func.count(Person.id)
             ).group_by(Person.nationality).order_by(func.count(Person.id).desc()).limit(10).all()
@@ -303,7 +287,6 @@ def get_stats():
                 for nationality, count in nationality_distribution
             ]
             
-            # Distribution par âge - TOUTES les personnes
             age_groups = {
                 "0-18": Person.query.filter(Person.age <= 18).count(),
                 "19-30": Person.query.filter(Person.age > 18, Person.age <= 30).count(),
@@ -316,7 +299,7 @@ def get_stats():
                 "gender_distribution": gender_stats,
                 "top_nationalities": top_nationalities,
                 "age_groups": age_groups,
-                "total_count": Person.query.count()  # Nombre total pour vérification
+                "total_count": Person.query.count()
             }
         
         # Informations sur les sections disponibles
@@ -324,7 +307,7 @@ def get_stats():
             'volumetry', 'recent_activity', 'registration_evolution', 'demographics'
         ]
         
-        # Vérification générale - confirmer que toutes les personnes sont comptées
+        # Vérification générale
         stats['total_persons_in_database'] = Person.query.count()
         
         return jsonify(stats), 200
