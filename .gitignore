@@ -27,4 +27,4 @@ build/
 *.pid
 *.seed
 *.whl
-
+static/

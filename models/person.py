@@ -1,6 +1,7 @@
 # models/person.py
 from datetime import datetime
 from .database import db
+from .enums import RegionEnum
 import uuid
 import base64
 
@@ -12,6 +13,7 @@ class Person(db.Model):
     age = db.Column(db.Integer, nullable=False)
     gender = db.Column(db.String(20), nullable=False)
     nationality = db.Column(db.String(50), nullable=False)
+    region = db.Column(db.String(100), nullable=False, default=RegionEnum.get_default())  # Région avec défaut Djibouti
     
     # Stockage des chemins de fichiers (pour compatibilité/transition)
     photo_path = db.Column(db.Text, nullable=True)
@@ -37,7 +39,7 @@ class Person(db.Model):
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     def __repr__(self):
-        return f"<Person {self.name}, {self.age} ans>"
+        return f"<Person {self.name}, {self.age} ans, {self.region}>"
     
     def to_dict(self, include_image_data=False, include_fingerprints=False):
         """
@@ -53,6 +55,7 @@ class Person(db.Model):
             "age": self.age,
             "gender": self.gender,
             "nationality": self.nationality,
+            "region": self.region,  # Nouveau champ inclus
             "vector_id": self.vector_id,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat()

@@ -4,10 +4,14 @@ import logging
 import os
 import base64
 import io
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import or_
 
 from models.person import Person
 from routes.dashboard import log_identification
+from models.enums import RegionEnum
+from models.database import db
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +26,7 @@ api = Blueprint('api', __name__)
 def create_person():
     """
     Endpoint pour créer une nouvelle personne avec empreintes digitales
-    Version optimisée avec validation renforcée
+    Version avec énumération des régions et défaut Djibouti
     """
     try:
         # Vérifier la présence de tous les champs requis
@@ -38,9 +42,14 @@ def create_person():
         age_str = request.form.get('age')
         gender = request.form.get('gender', '').strip()
         nationality = request.form.get('nationality', '').strip()
+        region = request.form.get('region', '').strip()  # Optionnel maintenant
+        
+        # La région est optionnelle, Djibouti par défaut
+        if not region:
+            region = RegionEnum.get_default()
         
         if not all([name, age_str, gender, nationality]):
-            return jsonify({"error": "Tous les champs sont obligatoires"}), 400
+            return jsonify({"error": "Les champs nom, âge, genre et nationalité sont obligatoires"}), 400
         
         try:
             age = int(age_str)
@@ -52,6 +61,15 @@ def create_person():
         # Validation du genre
         if gender not in ['Masculin', 'Féminin', 'Autre']:
             return jsonify({"error": "Le genre doit être 'Masculin', 'Féminin' ou 'Autre'"}), 400
+        
+        # Validation de la région avec énumération
+        valid_regions = RegionEnum.get_values()
+        if region not in valid_regions:
+            return jsonify({
+                "error": f"La région doit être l'une des suivantes: {', '.join(valid_regions)}",
+                "valid_regions": valid_regions,
+                "default_region": RegionEnum.get_default()
+            }), 400
         
         # Récupérer les fichiers d'empreintes (optionnels)
         fingerprint_right = request.files.get('fingerprint_right')
@@ -69,7 +87,7 @@ def create_person():
         # Créer la personne
         person_service = current_app.person_service
         person = person_service.create_person(
-            name, age, gender, nationality, photo,
+            name, age, gender, nationality, region, photo,
             fingerprint_right, fingerprint_left, fingerprint_thumbs
         )
         
@@ -94,10 +112,12 @@ def create_person():
         logger.error(f"Erreur lors de la création de la personne: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
+# Mise à jour de get_all_persons pour supporter le filtrage par région
 @api.route('/persons', methods=['GET'])
 def get_all_persons():
     """
     Endpoint optimisé pour récupérer les personnes avec différents niveaux de détail
+    Version mise à jour avec support de la région
     
     Query parameters:
     - page: Numéro de page (défaut: 1)
@@ -108,7 +128,7 @@ def get_all_persons():
     - include_urls: Ajouter les URLs des médias en mode summary (défaut: false)
     - sort_by: Champ de tri (défaut: created_at)
     - sort_order: Ordre de tri (défaut: desc)
-    - + tous les filtres (gender, nationality, age_min, etc.)
+    - + tous les filtres (gender, nationality, region, age_min, etc.)
     """
     try:
         # Paramètres de pagination
@@ -139,12 +159,14 @@ def get_all_persons():
             )
             return jsonify(result), 200
         
-        # Filtres
+        # Filtres (mise à jour avec région)
         filters = {}
         if request.args.get('gender'):
             filters['gender'] = request.args.get('gender')
         if request.args.get('nationality'):
             filters['nationality'] = request.args.get('nationality')
+        if request.args.get('region'):  # Nouveau filtre région
+            filters['region'] = request.args.get('region')
         if request.args.get('has_fingerprints'):
             filters['has_fingerprints'] = request.args.get('has_fingerprints').lower() in ('true', '1', 'yes')
         if request.args.get('age_min'):
@@ -468,14 +490,16 @@ def process_image():
 # ENDPOINTS DE RECHERCHE AVANCÉE
 # ========================
 
+# Mise à jour de la recherche pour inclure la région
 @api.route('/search', methods=['GET'])
 def search_persons():
     """
     Endpoint de recherche textuelle avancée
+    Version mise à jour avec support de la région
     
     Query parameters:
     - q: Terme de recherche (obligatoire)
-    - fields: Champs à rechercher (name,nationality,gender) - défaut: name,nationality
+    - fields: Champs à rechercher (name,nationality,gender,region) - défaut: name,nationality,region
     - page: Numéro de page (défaut: 1)
     - limit: Éléments par page (défaut: 20)
     """
@@ -487,16 +511,16 @@ def search_persons():
         if len(search_term) < 2:
             return jsonify({"error": "Le terme de recherche doit contenir au moins 2 caractères"}), 400
         
-        # Paramètres de recherche
-        fields_param = request.args.get('fields', 'name,nationality')
+        # Paramètres de recherche (mise à jour avec région)
+        fields_param = request.args.get('fields', 'name,nationality,region')
         search_fields = [field.strip() for field in fields_param.split(',') if field.strip()]
         
-        # Validation des champs
-        valid_fields = ['name', 'nationality', 'gender']
+        # Validation des champs (mise à jour)
+        valid_fields = ['name', 'nationality', 'gender', 'region']
         search_fields = [field for field in search_fields if field in valid_fields]
         
         if not search_fields:
-            search_fields = ['name', 'nationality']
+            search_fields = ['name', 'nationality', 'region']
         
         page = request.args.get('page', 1, type=int)
         limit = request.args.get('limit', 20, type=int)
@@ -515,15 +539,18 @@ def search_persons():
         logger.error(f"Erreur lors de la recherche: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
+# Mise à jour du filtrage avancé pour inclure la région
 @api.route('/filter', methods=['POST'])
 def filter_persons():
     """
     Endpoint de filtrage avancé avec critères multiples
+    Version mise à jour avec support de la région
     Body JSON attendu:
     {
         "filters": {
             "gender": "Masculin",
             "nationality": "France",
+            "region": "Île-de-France",
             "age_range": [25, 45],
             "has_fingerprints": true,
             "created_date_range": ["2024-01-01", "2024-12-31"]
@@ -553,7 +580,7 @@ def filter_persons():
         pagination_data = data.get('pagination', {})
         include_data = data.get('include', {})
         
-        # Construction des filtres
+        # Construction des filtres (mise à jour)
         filters = {}
         
         if filters_data.get('gender'):
@@ -561,6 +588,9 @@ def filter_persons():
         
         if filters_data.get('nationality'):
             filters['nationality'] = filters_data['nationality']
+        
+        if filters_data.get('region'):  # Nouveau filtre région
+            filters['region'] = filters_data['region']
         
         if filters_data.get('age_range'):
             age_range = filters_data['age_range']
@@ -783,12 +813,80 @@ def clear_all_data():
 # ENDPOINTS DE MÉTADONNÉES
 # ========================
 
+# Ajouts dans routes/api.py pour la gestion des régions
+
+@api.route('/regions', methods=['GET'])
+def get_available_regions():
+    """
+    Endpoint pour récupérer la liste des régions disponibles
+    """
+    try:
+        return jsonify({
+            "regions": RegionEnum.get_values(),
+            "default_region": RegionEnum.get_default(),
+            "total_count": len(RegionEnum.get_values()),
+            "description": "Régions administratives de Djibouti"
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Erreur lors de la récupération des régions: {e}")
+        return jsonify({"error": "Erreur interne du serveur"}), 500
+
+@api.route('/regions/stats', methods=['GET'])
+def get_regions_statistics():
+    """
+    Endpoint pour récupérer les statistiques par région
+    """
+    try:
+        from sqlalchemy import func
+        from models.person import Person
+        
+        # Statistiques par région
+        region_stats = db.session.query(
+            Person.region,
+            func.count(Person.id).label('count')
+        ).group_by(Person.region).all()
+        
+        # Transformer en dictionnaire
+        stats_dict = {stat.region: stat.count for stat in region_stats}
+        
+        # Ajouter les régions avec 0 personnes
+        all_regions = RegionEnum.get_values()
+        for region in all_regions:
+            if region not in stats_dict:
+                stats_dict[region] = 0
+        
+        # Calculer le total
+        total_persons = sum(stats_dict.values())
+        
+        # Calculer les pourcentages
+        percentages = {}
+        if total_persons > 0:
+            percentages = {
+                region: round((count / total_persons * 100), 2) 
+                for region, count in stats_dict.items()
+            }
+        
+        return jsonify({
+            "region_distribution": stats_dict,
+            "region_percentages": percentages,
+            "total_persons": total_persons,
+            "regions_with_data": len([count for count in stats_dict.values() if count > 0]),
+            "available_regions": all_regions,
+            "default_region": RegionEnum.get_default()
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Erreur lors de la récupération des statistiques régionales: {e}")
+        return jsonify({"error": "Erreur interne du serveur"}), 500
+
+# Mise à jour des métadonnées pour inclure l'énumération des régions
 @api.route('/metadata/fields', methods=['GET'])
 def get_available_fields():
-    """Retourne les champs disponibles pour les filtres et le tri"""
+    """Retourne les champs disponibles pour les filtres et le tri (avec énumération des régions)"""
     return jsonify({
         "sortable_fields": [
-            "created_at", "updated_at", "name", "age", "gender", "nationality"
+            "created_at", "updated_at", "name", "age", "gender", "nationality", "region"
         ],
         "filterable_fields": {
             "gender": {
@@ -798,6 +896,12 @@ def get_available_fields():
             "nationality": {
                 "type": "string",
                 "description": "Nationalité de la personne"
+            },
+            "region": {
+                "type": "enum",
+                "values": RegionEnum.get_values(),
+                "default": RegionEnum.get_default(),
+                "description": "Région administrative de Djibouti"
             },
             "age_min": {
                 "type": "integer",
@@ -827,7 +931,14 @@ def get_available_fields():
                 "description": "Date de création maximum"
             }
         },
-        "searchable_fields": ["name", "nationality", "gender"]
+        "searchable_fields": ["name", "nationality", "gender", "region"],
+        "enums": {
+            "regions": {
+                "values": RegionEnum.get_values(),
+                "default": RegionEnum.get_default()
+            },
+            "genders": ["Masculin", "Féminin", "Autre"]
+        }
     }), 200
 
 @api.route('/metadata/stats-summary', methods=['GET'])
@@ -849,7 +960,7 @@ def get_stats_summary():
         ).count()
         
         # Nouvelles inscriptions (utilise l'index sur created_at)
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         today_start = datetime.combine(today, datetime.min.time())
         new_today = db.session.query(Person.id).filter(
             Person.created_at >= today_start
@@ -860,14 +971,14 @@ def get_stats_summary():
             Person.created_at >= week_start
         ).count()
         
-        return jsonify({
-            "total_persons": total_persons,
-            "persons_with_fingerprints": persons_with_fingerprints,
-            "fingerprint_percentage": round((persons_with_fingerprints / total_persons * 100), 1) if total_persons > 0 else 0,
-            "new_today": new_today,
-            "new_this_week": new_this_week,
-            "last_updated": datetime.utcnow().isoformat()
-        }), 200
+        jsonify({
+                    "total_persons": total_persons,
+                    "persons_with_fingerprints": persons_with_fingerprints,
+                    "fingerprint_percentage": round((persons_with_fingerprints / total_persons * 100), 1) if total_persons > 0 else 0,
+                    "new_today": new_today, 
+                    "new_this_week": new_this_week,
+                    "last_updated": datetime.now(timezone.utc).isoformat()
+                }), 200
         
     except Exception as e:
         logger.error(f"Erreur lors de la récupération du résumé des stats: {e}")

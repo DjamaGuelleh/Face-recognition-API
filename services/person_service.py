@@ -13,6 +13,7 @@ from flask import send_file
 
 from models.database import db
 from models.person import Person
+from models.enums import RegionEnum
 
 logger = logging.getLogger(__name__)
 
@@ -38,16 +39,21 @@ class PersonService:
     # CRÉATION DE PERSONNE
     # ========================
     
-    def create_person(self, name, age, gender, nationality, image_file, 
-                     fingerprint_right=None, fingerprint_left=None, fingerprint_thumbs=None):
+    # Mise à jour de la méthode create_person
+    def create_person(self, name, age, gender, nationality, region=None, image_file=None, 
+                    fingerprint_right=None, fingerprint_left=None, fingerprint_thumbs=None):
         """
         Crée une nouvelle personne avec son embedding facial et ses empreintes
-        Version optimisée avec transaction complète
+        Version avec énumération des régions et défaut Djibouti
         """
         temp_path = None
         try:
+            # Si aucune région n'est spécifiée, utiliser Djibouti par défaut
+            if not region:
+                region = RegionEnum.get_default()
+                
             # Validation des données d'entrée
-            if not self._validate_person_data(name, age, gender, nationality):
+            if not self._validate_person_data(name, age, gender, nationality, region):
                 return None
                 
             # Générer un identifiant unique pour la personne
@@ -71,6 +77,7 @@ class PersonService:
                 "age": age,
                 "gender": gender,
                 "nationality": nationality,
+                "region": region,
                 "person_id": person_id,
                 "detection_score": score
             }
@@ -94,6 +101,7 @@ class PersonService:
                     age=age,
                     gender=gender.strip(),
                     nationality=nationality.strip(),
+                    region=region.strip(),
                     vector_id=person_id,
                     **binary_data
                 )
@@ -101,7 +109,7 @@ class PersonService:
                 db.session.add(person)
                 # Le commit est automatique grâce à begin()
                 
-            logger.info(f"Personne créée avec succès: {name} (ID: {person_id})")
+            logger.info(f"Personne créée avec succès: {name} (ID: {person_id}, Région: {region})")
             return person
             
         except Exception as e:
@@ -118,8 +126,9 @@ class PersonService:
             if temp_path and os.path.exists(temp_path):
                 os.remove(temp_path)
     
-    def _validate_person_data(self, name, age, gender, nationality):
-        """Valide les données d'une personne"""
+    # Mise à jour de la validation avec énumération
+    def _validate_person_data(self, name, age, gender, nationality, region):
+        """Valide les données d'une personne avec énumération des régions"""
         if not name or len(name.strip()) < 2:
             logger.error("Le nom doit contenir au moins 2 caractères")
             return False
@@ -132,7 +141,27 @@ class PersonService:
         if not nationality or len(nationality.strip()) < 2:
             logger.error("La nationalité doit être spécifiée")
             return False
+        
+        # Validation de la région avec énumération
+        if not region:
+            logger.error("La région doit être spécifiée")
+            return False
+        
+        valid_regions = RegionEnum.get_values()
+        if region.strip() not in valid_regions:
+            logger.error(f"La région doit être l'une des suivantes: {', '.join(valid_regions)}")
+            return False
+            
         return True
+    
+    # Méthode utilitaire pour obtenir les régions disponibles
+    def get_available_regions(self):
+        """Retourne la liste des régions disponibles"""
+        return {
+            "regions": RegionEnum.get_values(),
+            "default_region": RegionEnum.get_default(),
+            "total_count": len(RegionEnum.get_values())
+        }
     
     def _prepare_binary_data(self, image_file, fingerprint_right, fingerprint_left, fingerprint_thumbs):
         """Prépare les données binaires pour le stockage"""
@@ -388,7 +417,7 @@ class PersonService:
             )
     
     def _apply_filters(self, query, filters):
-        """Applique les filtres à la requête en utilisant les index optimisés"""
+        """Applique les filtres à la requête en utilisant les index optimisés (CORRIGÉ avec région)"""
         if not filters:
             return query
         
@@ -398,6 +427,10 @@ class PersonService:
         
         if filters.get('nationality'):
             query = query.filter(Person.nationality == filters['nationality'])
+        
+        # 🔧 CORRECTION: Filtre par région (était manquant)
+        if filters.get('region'):
+            query = query.filter(Person.region == filters['region'])
         
         # Filtre d'âge optimisé
         if filters.get('age_min') is not None:
@@ -453,7 +486,7 @@ class PersonService:
                 query = query.filter(and_(Person.age >= min_age, Person.age <= max_age))
         
         return query
-    
+
     def _apply_filters_to_summary(self, query, filters):
         """Version des filtres pour les requêtes summary - IDENTIQUE à _apply_filters"""
         return self._apply_filters(query, filters)
@@ -1128,3 +1161,25 @@ class PersonService:
             include_fingerprints=include_fingerprints
         )
         return result.get("persons", [])
+    
+    def _apply_sorting(self, query, sort_by, sort_order):
+        """Applique le tri en utilisant les index optimisés (mise à jour avec région)"""
+        sort_columns = {
+            'created_at': Person.created_at,
+            'updated_at': Person.updated_at,
+            'name': Person.name,
+            'age': Person.age,
+            'gender': Person.gender,
+            'nationality': Person.nationality,
+            'region': Person.region  # Nouveau champ de tri
+        }
+        
+        if sort_by not in sort_columns:
+            sort_by = 'created_at'
+        
+        column = sort_columns[sort_by]
+        
+        if sort_order.lower() == 'asc':
+            return query.order_by(asc(column))
+        else:
+            return query.order_by(desc(column))
