@@ -112,60 +112,132 @@ def create_person():
         logger.error(f"Erreur lors de la création de la personne: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
-# Mise à jour de get_all_persons pour supporter le filtrage par région
+# Mise à jour de routes/api.py - Endpoint GET /api/persons unifié
+
 @api.route('/persons', methods=['GET'])
 def get_all_persons():
     """
-    Endpoint optimisé pour récupérer les personnes avec différents niveaux de détail
-    Version mise à jour avec support de la région
+    Endpoint unifié pour récupérer ET rechercher les personnes
     
     Query parameters:
-    - page: Numéro de page (défaut: 1)
-    - limit: Éléments par page (défaut: 20, max: 100)
-    - include_images: Inclure les photos en base64 (défaut: false)
-    - include_fingerprints: Inclure les empreintes en base64 (défaut: false)
-    - summary_only: Mode ultra-rapide sans URLs (défaut: false)
-    - include_urls: Ajouter les URLs des médias en mode summary (défaut: false)
+    === MODE RECHERCHE (avec paramètre 'q') ===
+    - q: Terme de recherche (active le mode recherche)
+    - search_fields: Champs à rechercher (name,nationality,region,gender) - défaut: name,nationality,region
+    
+    === MODE FILTRAGE (sans paramètre 'q') ===
+    - region, gender, nationality: Filtres par valeurs exactes
+    - age_min, age_max: Filtres d'âge
+    - has_fingerprints: true/false
+    - created_after, created_before: Filtres de date
+    
+    === PAGINATION ===
+    - all: true/false - Récupérer TOUTES les données sans pagination (défaut: false)
+    - page: Numéro de page (défaut: 1) - ignoré si all=true
+    - limit: Éléments par page (défaut: 20, max: 100) - ignoré si all=true
+    
+    === COMMUN AUX DEUX MODES ===
     - sort_by: Champ de tri (défaut: created_at)
     - sort_order: Ordre de tri (défaut: desc)
-    - + tous les filtres (gender, nationality, region, age_min, etc.)
+    - include_images, include_fingerprints: Inclure les données binaires
+    - summary_only: Mode ultra-rapide sans URLs
     """
     try:
-        # Paramètres de pagination
-        page = request.args.get('page', 1, type=int)
-        limit = request.args.get('limit', 20, type=int)
+        # NOUVEAU: Détection du mode recherche
+        search_term = request.args.get('q', '').strip()
         
-        # Paramètres d'inclusion
+        # NOUVEAU: Mode sans pagination
+        get_all = request.args.get('all', 'false').lower() in ('true', '1', 'yes')
+        
+        # Paramètres de pagination
+        if get_all:
+            page = 1
+            limit = None  # Pas de limite
+        else:
+            page = request.args.get('page', 1, type=int)
+            limit = request.args.get('limit', 20, type=int)
+            limit = min(max(1, limit), 100)  # Limiter entre 1 et 100 uniquement si pas all=true
+        
+        # Paramètres communs
         include_images = request.args.get('include_images', 'false').lower() in ('true', '1', 'yes')
         include_fingerprints = request.args.get('include_fingerprints', 'false').lower() in ('true', '1', 'yes')
         summary_only = request.args.get('summary_only', 'false').lower() in ('true', '1', 'yes')
-        include_urls = request.args.get('include_urls', 'false').lower() in ('true', '1', 'yes')
-        
-        # Paramètres de tri
         sort_by = request.args.get('sort_by', 'created_at')
         sort_order = request.args.get('sort_order', 'desc')
         
-        # Recherche textuelle
-        search_term = request.args.get('search', '').strip()
-        
         person_service = current_app.person_service
         
-        # Mode recherche
+        # ===================================
+        # MODE RECHERCHE (avec paramètre 'q')
+        # ===================================
         if search_term:
-            result = person_service.search_persons(
-                search_term=search_term,
-                page=page,
-                limit=limit
-            )
+            # Validation du terme de recherche
+            if len(search_term) < 2:
+                return jsonify({
+                    "error": "Le terme de recherche doit contenir au moins 2 caractères",
+                    "mode": "search"
+                }), 400
+            
+            # Champs de recherche
+            search_fields_param = request.args.get('search_fields', 'name,nationality,region')
+            search_fields = [field.strip() for field in search_fields_param.split(',') if field.strip()]
+            
+            # Validation des champs de recherche
+            valid_search_fields = ['name', 'nationality', 'gender', 'region']
+            search_fields = [field for field in search_fields if field in valid_search_fields]
+            
+            if not search_fields:
+                search_fields = ['name', 'nationality', 'region']
+            
+            # Appeler le service de recherche avec ou sans pagination
+            if get_all:
+                result = person_service.search_persons_all(
+                    search_term=search_term,
+                    search_fields=search_fields,
+                    sort_by=sort_by,
+                    sort_order=sort_order
+                )
+            else:
+                result = person_service.search_persons(
+                    search_term=search_term,
+                    page=page,
+                    limit=limit,
+                    search_fields=search_fields
+                )
+            
+            # Enrichir la réponse avec des métadonnées de recherche
+            result.update({
+                'mode': 'search',
+                'search_query': search_term,
+                'search_fields_used': search_fields,
+                'available_search_fields': valid_search_fields,
+                'pagination_disabled': get_all,
+                'sort': {'by': 'relevance' if not get_all else sort_by, 'order': 'desc' if not get_all else sort_order}
+            })
+            
+            # Ajouter les URLs pour les ressources si en mode non-summary
+            if not summary_only:
+                for person in result.get('persons', []):
+                    person["photo_url"] = f"/api/persons/{person['id']}/photo"
+                    if person.get("has_fingerprints"):
+                        person["fingerprint_urls"] = {
+                            "right": f"/api/persons/{person['id']}/fingerprint/right",
+                            "left": f"/api/persons/{person['id']}/fingerprint/left", 
+                            "thumbs": f"/api/persons/{person['id']}/fingerprint/thumbs"
+                        }
+            
             return jsonify(result), 200
         
-        # Filtres (mise à jour avec région)
+        # ===================================
+        # MODE FILTRAGE NORMAL (sans 'q')
+        # ===================================
+        
+        # Construction des filtres (code existant)
         filters = {}
         if request.args.get('gender'):
             filters['gender'] = request.args.get('gender')
         if request.args.get('nationality'):
             filters['nationality'] = request.args.get('nationality')
-        if request.args.get('region'):  # Nouveau filtre région
+        if request.args.get('region'):
             filters['region'] = request.args.get('region')
         if request.args.get('has_fingerprints'):
             filters['has_fingerprints'] = request.args.get('has_fingerprints').lower() in ('true', '1', 'yes')
@@ -181,18 +253,25 @@ def get_all_persons():
             filters['created_before'] = request.args.get('created_before')
         
         # Choisir le mode approprié
-        if summary_only:
-            if include_urls:
-                # Summary avec URLs
-                result = person_service.get_persons_summary_with_urls(
-                    page=page, 
-                    limit=limit, 
+        if get_all:
+            # NOUVEAU: Mode sans pagination
+            if summary_only:
+                result = person_service.get_persons_summary_all(
                     filters=filters,
                     sort_by=sort_by,
                     sort_order=sort_order
                 )
             else:
-                # Summary minimal (plus rapide)
+                result = person_service.get_all_persons_no_pagination(
+                    include_images=include_images,
+                    include_fingerprints=include_fingerprints,
+                    filters=filters,
+                    sort_by=sort_by,
+                    sort_order=sort_order
+                )
+        else:
+            # Mode paginé existant
+            if summary_only:
                 result = person_service.get_persons_summary_only(
                     page=page, 
                     limit=limit, 
@@ -200,17 +279,36 @@ def get_all_persons():
                     sort_by=sort_by,
                     sort_order=sort_order
                 )
-        else:
-            # Mode complet
-            result = person_service.get_all_persons_optimized(
-                page=page,
-                limit=limit,
-                include_images=include_images,
-                include_fingerprints=include_fingerprints,
-                filters=filters,
-                sort_by=sort_by,
-                sort_order=sort_order
-            )
+            else:
+                result = person_service.get_all_persons_optimized(
+                    page=page,
+                    limit=limit,
+                    include_images=include_images,
+                    include_fingerprints=include_fingerprints,
+                    filters=filters,
+                    sort_by=sort_by,
+                    sort_order=sort_order
+                )
+        
+        # Ajouter les URLs pour les ressources si mode normal (non summary)
+        if not summary_only and not get_all:
+            for person in result.get('persons', []):
+                if not include_images:
+                    person["photo_url"] = f"/api/persons/{person['id']}/photo"
+                if person.get("has_fingerprints") and not include_fingerprints:
+                    person["fingerprint_urls"] = {
+                        "right": f"/api/persons/{person['id']}/fingerprint/right",
+                        "left": f"/api/persons/{person['id']}/fingerprint/left",
+                        "thumbs": f"/api/persons/{person['id']}/fingerprint/thumbs"
+                    }
+        
+        # Ajouter les métadonnées à la réponse
+        result['mode'] = 'filter'
+        result['pagination_disabled'] = get_all
+        
+        # Avertissement si trop de données demandées
+        if get_all and result.get('total_count', 0) > 1000:
+            result['warning'] = f"Récupération de {result['total_count']} enregistrements sans pagination. Considérez l'utilisation de la pagination pour de meilleures performances."
         
         return jsonify(result), 200
         
@@ -218,6 +316,59 @@ def get_all_persons():
         return jsonify({"error": f"Paramètre invalide: {str(e)}"}), 400
     except Exception as e:
         logger.error(f"Erreur lors de la récupération des personnes: {e}")
+        return jsonify({"error": "Erreur interne du serveur"}), 500
+
+
+# ===================================
+# OPTIONNEL: Garder l'ancien endpoint pour rétrocompatibilité
+# ===================================
+
+@api.route('/search', methods=['GET'])
+def search_persons_legacy():
+    """
+    Endpoint de recherche dédié (gardé pour rétrocompatibilité)
+    RECOMMANDATION: Utilisez plutôt GET /api/persons?q=... 
+    """
+    try:
+        search_term = request.args.get('q', '').strip()
+        if not search_term:
+            return jsonify({
+                "error": "Paramètre de recherche 'q' obligatoire",
+                "recommendation": "Utilisez GET /api/persons?q=... pour la nouvelle API unifiée"
+            }), 400
+        
+        # Rediriger vers l'endpoint unifié
+        from flask import redirect, url_for
+        
+        # Construire les paramètres de redirection
+        redirect_params = request.args.to_dict()
+        
+        # Note: Pour une vraie redirection, vous pourriez faire :
+        # return redirect(url_for('api.get_all_persons', **redirect_params))
+        
+        # Ou appeler directement le service (plus simple)
+        page = request.args.get('page', 1, type=int)
+        limit = request.args.get('limit', 20, type=int)
+        search_fields_param = request.args.get('fields', 'name,nationality,region')
+        search_fields = [field.strip() for field in search_fields_param.split(',') if field.strip()]
+        
+        person_service = current_app.person_service
+        result = person_service.search_persons(
+            search_term=search_term,
+            page=page,
+            limit=limit,
+            search_fields=search_fields
+        )
+        
+        # Ajouter une note de dépréciation
+        result['deprecated'] = True
+        result['message'] = "Cet endpoint est deprecated. Utilisez GET /api/persons?q=... à la place"
+        result['new_endpoint'] = f"/api/persons?q={search_term}"
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        logger.error(f"Erreur lors de la recherche (legacy): {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
 @api.route('/persons/with-fingerprints', methods=['GET'])
@@ -486,58 +637,6 @@ def process_image():
         logger.error(f"Erreur lors du traitement de l'image: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
-# ========================
-# ENDPOINTS DE RECHERCHE AVANCÉE
-# ========================
-
-# Mise à jour de la recherche pour inclure la région
-@api.route('/search', methods=['GET'])
-def search_persons():
-    """
-    Endpoint de recherche textuelle avancée
-    Version mise à jour avec support de la région
-    
-    Query parameters:
-    - q: Terme de recherche (obligatoire)
-    - fields: Champs à rechercher (name,nationality,gender,region) - défaut: name,nationality,region
-    - page: Numéro de page (défaut: 1)
-    - limit: Éléments par page (défaut: 20)
-    """
-    try:
-        search_term = request.args.get('q', '').strip()
-        if not search_term:
-            return jsonify({"error": "Paramètre de recherche 'q' obligatoire"}), 400
-        
-        if len(search_term) < 2:
-            return jsonify({"error": "Le terme de recherche doit contenir au moins 2 caractères"}), 400
-        
-        # Paramètres de recherche (mise à jour avec région)
-        fields_param = request.args.get('fields', 'name,nationality,region')
-        search_fields = [field.strip() for field in fields_param.split(',') if field.strip()]
-        
-        # Validation des champs (mise à jour)
-        valid_fields = ['name', 'nationality', 'gender', 'region']
-        search_fields = [field for field in search_fields if field in valid_fields]
-        
-        if not search_fields:
-            search_fields = ['name', 'nationality', 'region']
-        
-        page = request.args.get('page', 1, type=int)
-        limit = request.args.get('limit', 20, type=int)
-        
-        person_service = current_app.person_service
-        result = person_service.search_persons(
-            search_term=search_term,
-            page=page,
-            limit=limit,
-            search_fields=search_fields
-        )
-        
-        return jsonify(result), 200
-        
-    except Exception as e:
-        logger.error(f"Erreur lors de la recherche: {e}")
-        return jsonify({"error": "Erreur interne du serveur"}), 500
 
 # Mise à jour du filtrage avancé pour inclure la région
 @api.route('/filter', methods=['POST'])

@@ -374,11 +374,11 @@ class PersonService:
             total_count = query.count()
             
             # Tri par pertinence (nom exact en premier)
+            # ✅ Syntaxe corrigée
             query = query.order_by(
-                case([(func.lower(Person.name) == search_term, 0)], else_=1),
+                case((func.lower(Person.name) == search_term, 0), else_=1),
                 Person.name.asc()
             )
-            
             # Pagination
             persons = query.offset(offset).limit(limit).all()
             
@@ -1183,3 +1183,239 @@ class PersonService:
             return query.order_by(asc(column))
         else:
             return query.order_by(desc(column))
+        
+
+
+    def get_all_persons_no_pagination(self, include_images=False, include_fingerprints=False, 
+                                    filters=None, sort_by='created_at', sort_order='desc'):
+        """
+        Récupère TOUTES les personnes sans pagination
+        ⚠️  ATTENTION: Peut retourner beaucoup de données
+        
+        Args:
+            include_images: Inclure les images en base64
+            include_fingerprints: Inclure les empreintes
+            filters: Dictionnaire de filtres optionnels
+            sort_by: Champ de tri ('created_at', 'name', 'age', 'updated_at')
+            sort_order: Ordre de tri ('asc', 'desc')
+        """
+        try:
+            # Construction de la requête de base
+            query = self._build_base_query(include_images, include_fingerprints)
+            
+            # Application des filtres
+            query = self._apply_filters(query, filters)
+            
+            # Comptage total
+            total_count = query.count()
+            
+            # Avertissement si beaucoup de données
+            if total_count > 1000:
+                logger.warning(f"Récupération de {total_count} enregistrements sans pagination")
+            
+            # Application du tri
+            query = self._apply_sorting(query, sort_by, sort_order)
+            
+            # Récupération de TOUS les résultats
+            persons = query.all()
+            
+            # Conversion en dictionnaires
+            person_dicts = []
+            for person in persons:
+                person_dict = person.to_dict(
+                    include_image_data=include_images,
+                    include_fingerprints=include_fingerprints
+                )
+                
+                # Ajouter les URLs des ressources
+                if not include_images:
+                    person_dict["photo_url"] = f"/api/persons/{person.id}/photo"
+                if person_dict.get("has_fingerprints") and not include_fingerprints:
+                    person_dict["fingerprint_urls"] = {
+                        "right": f"/api/persons/{person.id}/fingerprint/right",
+                        "left": f"/api/persons/{person.id}/fingerprint/left",
+                        "thumbs": f"/api/persons/{person.id}/fingerprint/thumbs"
+                    }
+                
+                person_dicts.append(person_dict)
+            
+            return {
+                "persons": person_dicts,
+                "total_count": total_count,
+                "pagination_disabled": True,
+                "filters_applied": filters or {},
+                "sort": {"by": sort_by, "order": sort_order},
+                "warning": f"Récupération de {total_count} enregistrements sans pagination" if total_count > 500 else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération sans pagination: {e}")
+            return {
+                "persons": [],
+                "total_count": 0,
+                "pagination_disabled": True,
+                "error": "Erreur lors de la récupération"
+            }
+    
+    def get_persons_summary_all(self, filters=None, sort_by='created_at', sort_order='desc'):
+        """
+        Version ultra-rapide pour récupérer TOUTES les personnes en mode résumé
+        ⚠️  ATTENTION: Peut retourner beaucoup de données
+        """
+        try:
+            # Requête avec defer pour éviter de charger les BLOB
+            query = Person.query.options(
+                defer(Person.photo_data),
+                defer(Person.fingerprint_right_data),
+                defer(Person.fingerprint_left_data),
+                defer(Person.fingerprint_thumbs_data)
+            )
+            
+            # Application des filtres
+            query = self._apply_filters(query, filters)
+            
+            # Comptage
+            total_count = query.count()
+            
+            # Avertissement si beaucoup de données
+            if total_count > 1000:
+                logger.warning(f"Récupération summary de {total_count} enregistrements sans pagination")
+            
+            # Tri
+            query = self._apply_sorting(query, sort_by, sort_order)
+            
+            # Récupération de TOUS les résultats
+            results = query.all()
+            
+            # Conversion MINIMALISTE
+            persons = []
+            for person in results:
+                # Calculer has_fingerprints et has_photo côté Python
+                has_fingerprints = any([
+                    person.fingerprint_right_data is not None,
+                    person.fingerprint_left_data is not None,
+                    person.fingerprint_thumbs_data is not None
+                ])
+                
+                has_photo = person.photo_data is not None
+                
+                # RÉSUMÉ MINIMAL
+                person_dict = {
+                    "id": person.id,
+                    "name": person.name,
+                    "age": person.age,
+                    "gender": person.gender,
+                    "nationality": person.nationality,
+                    "region": person.region,
+                    "has_fingerprints": has_fingerprints,
+                    "has_photo": has_photo,
+                    "created_at": person.created_at.isoformat()
+                }
+                persons.append(person_dict)
+            
+            return {
+                "persons": persons,
+                "total_count": total_count,
+                "pagination_disabled": True,
+                "filters_applied": filters or {},
+                "sort": {"by": sort_by, "order": sort_order},
+                "mode": "summary",
+                "warning": f"Récupération summary de {total_count} enregistrements sans pagination" if total_count > 500 else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la récupération summary sans pagination: {e}")
+            return {
+                "persons": [],
+                "total_count": 0,
+                "pagination_disabled": True,
+                "error": "Erreur lors de la récupération"
+            }
+        
+
+    def search_persons_all(self, search_term, search_fields=None, sort_by='created_at', sort_order='desc'):
+        """
+        Recherche textuelle dans TOUTES les personnes sans pagination - VERSION CORRIGÉE
+        """
+        try:
+            if not search_term or len(search_term.strip()) < 2:
+                return {
+                    "persons": [],
+                    "total_count": 0,
+                    "pagination_disabled": True,
+                    "search_term": search_term,
+                    "error": "Terme de recherche trop court"
+                }
+            
+            search_term_lower = search_term.strip().lower()
+            
+            # Champs de recherche par défaut
+            if not search_fields:
+                search_fields = ['name', 'nationality', 'region']
+            
+            # Construction des conditions de recherche
+            conditions = []
+            if 'name' in search_fields:
+                conditions.append(func.lower(Person.name).contains(search_term_lower))
+            if 'nationality' in search_fields:
+                conditions.append(func.lower(Person.nationality).contains(search_term_lower))
+            if 'gender' in search_fields:
+                conditions.append(func.lower(Person.gender).contains(search_term_lower))
+            if 'region' in search_fields:
+                conditions.append(func.lower(Person.region).contains(search_term_lower))
+            
+            if not conditions:
+                return {
+                    "persons": [],
+                    "total_count": 0,
+                    "pagination_disabled": True,
+                    "search_term": search_term,
+                    "error": "Aucun champ de recherche valide"
+                }
+            
+            # Requête de recherche
+            query = Person.query.filter(or_(*conditions))
+            
+            # Comptage
+            total_count = query.count()
+            
+            # 🔧 CORRECTION: Syntaxe case() fixée
+            query = query.order_by(
+                case((func.lower(Person.name) == search_term_lower, 0), else_=1),
+                Person.name.asc()
+            )
+            
+            # Récupération de TOUS les résultats
+            persons = query.all()
+            
+            # Conversion
+            person_dicts = []
+            for person in persons:
+                person_dict = person.to_dict(include_image_data=False)
+                person_dict["photo_url"] = f"/api/persons/{person.id}/photo"
+                if person_dict.get("has_fingerprints"):
+                    person_dict["fingerprint_urls"] = {
+                        "right": f"/api/persons/{person.id}/fingerprint/right",
+                        "left": f"/api/persons/{person.id}/fingerprint/left",
+                        "thumbs": f"/api/persons/{person.id}/fingerprint/thumbs"
+                    }
+                person_dicts.append(person_dict)
+            
+            return {
+                "persons": person_dicts,
+                "total_count": total_count,
+                "pagination_disabled": True,
+                "search_term": search_term,
+                "search_fields": search_fields,
+                "sort": {"by": sort_by, "order": sort_order}
+            }
+            
+        except Exception as e:
+            logger.error(f"Erreur lors de la recherche sans pagination: {e}")
+            return {
+                "persons": [],
+                "total_count": 0,
+                "pagination_disabled": True,
+                "search_term": search_term,
+                "error": f"Erreur lors de la recherche: {str(e)}"
+            }
