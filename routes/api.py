@@ -1,4 +1,4 @@
-# routes/api.py - Version Complètement Optimisée
+# routes/api.py - Partie 1 : CRUD et Recherche
 from flask import Blueprint, request, jsonify, current_app, send_file
 import logging
 import os
@@ -112,8 +112,6 @@ def create_person():
         logger.error(f"Erreur lors de la création de la personne: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
-# Mise à jour de routes/api.py - Endpoint GET /api/persons unifié
-
 @api.route('/persons', methods=['GET'])
 def get_all_persons():
     """
@@ -142,10 +140,10 @@ def get_all_persons():
     - summary_only: Mode ultra-rapide sans URLs
     """
     try:
-        # NOUVEAU: Détection du mode recherche
+        # Détection du mode recherche
         search_term = request.args.get('q', '').strip()
         
-        # NOUVEAU: Mode sans pagination
+        # Mode sans pagination
         get_all = request.args.get('all', 'false').lower() in ('true', '1', 'yes')
         
         # Paramètres de pagination
@@ -231,7 +229,7 @@ def get_all_persons():
         # MODE FILTRAGE NORMAL (sans 'q')
         # ===================================
         
-        # Construction des filtres (code existant)
+        # Construction des filtres
         filters = {}
         if request.args.get('gender'):
             filters['gender'] = request.args.get('gender')
@@ -254,7 +252,7 @@ def get_all_persons():
         
         # Choisir le mode approprié
         if get_all:
-            # NOUVEAU: Mode sans pagination
+            # Mode sans pagination
             if summary_only:
                 result = person_service.get_persons_summary_all(
                     filters=filters,
@@ -318,11 +316,6 @@ def get_all_persons():
         logger.error(f"Erreur lors de la récupération des personnes: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
-
-# ===================================
-# OPTIONNEL: Garder l'ancien endpoint pour rétrocompatibilité
-# ===================================
-
 @api.route('/search', methods=['GET'])
 def search_persons_legacy():
     """
@@ -337,16 +330,7 @@ def search_persons_legacy():
                 "recommendation": "Utilisez GET /api/persons?q=... pour la nouvelle API unifiée"
             }), 400
         
-        # Rediriger vers l'endpoint unifié
-        from flask import redirect, url_for
-        
-        # Construire les paramètres de redirection
-        redirect_params = request.args.to_dict()
-        
-        # Note: Pour une vraie redirection, vous pourriez faire :
-        # return redirect(url_for('api.get_all_persons', **redirect_params))
-        
-        # Ou appeler directement le service (plus simple)
+        # Appeler directement le service
         page = request.args.get('page', 1, type=int)
         limit = request.args.get('limit', 20, type=int)
         search_fields_param = request.args.get('fields', 'name,nationality,region')
@@ -467,6 +451,9 @@ def delete_person(person_id):
     except Exception as e:
         logger.error(f"Erreur lors de la suppression de la personne: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
+
+
+# routes/api.py - Partie 2 : Médias, Reconnaissance, Administration et Métadonnées
 
 # ========================
 # ENDPOINTS DE RESSOURCES MÉDIAS
@@ -637,8 +624,6 @@ def process_image():
         logger.error(f"Erreur lors du traitement de l'image: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
-
-# Mise à jour du filtrage avancé pour inclure la région
 @api.route('/filter', methods=['POST'])
 def filter_persons():
     """
@@ -649,7 +634,7 @@ def filter_persons():
         "filters": {
             "gender": "Masculin",
             "nationality": "France",
-            "region": "Île-de-France",
+            "region": "Djibouti",
             "age_range": [25, 45],
             "has_fingerprints": true,
             "created_date_range": ["2024-01-01", "2024-12-31"]
@@ -679,7 +664,7 @@ def filter_persons():
         pagination_data = data.get('pagination', {})
         include_data = data.get('include', {})
         
-        # Construction des filtres (mise à jour)
+        # Construction des filtres
         filters = {}
         
         if filters_data.get('gender'):
@@ -688,7 +673,7 @@ def filter_persons():
         if filters_data.get('nationality'):
             filters['nationality'] = filters_data['nationality']
         
-        if filters_data.get('region'):  # Nouveau filtre région
+        if filters_data.get('region'):
             filters['region'] = filters_data['region']
         
         if filters_data.get('age_range'):
@@ -747,74 +732,6 @@ def filter_persons():
         
     except Exception as e:
         logger.error(f"Erreur lors du filtrage: {e}")
-        return jsonify({"error": "Erreur interne du serveur"}), 500
-
-# ========================
-# ENDPOINTS DE STATISTIQUES ET ANALYTICS
-# ========================
-
-@api.route('/stats', methods=['GET'])
-def get_statistics():
-    """
-    Endpoint pour récupérer les statistiques optimisées
-    
-    Query parameters:
-    - include_trends: true/false (défaut: false)
-    - trends_period: daily/weekly/monthly (défaut: daily)
-    - trends_days: nombre de jours pour daily (défaut: 30)
-    """
-    try:
-        include_trends = request.args.get('include_trends', 'false').lower() in ('true', '1', 'yes')
-        trends_period = request.args.get('trends_period', 'daily')
-        trends_days = request.args.get('trends_days', 30, type=int)
-        
-        person_service = current_app.person_service
-        
-        # Statistiques de base
-        stats = person_service.get_statistics_optimized()
-        
-        # Ajouter les tendances si demandées
-        if include_trends:
-            trends = person_service.get_registration_trends(
-                period=trends_period,
-                days=trends_days
-            )
-            stats['trends'] = {
-                'period': trends_period,
-                'data': trends
-            }
-        
-        return jsonify(stats), 200
-        
-    except Exception as e:
-        logger.error(f"Erreur lors de la récupération des statistiques: {e}")
-        return jsonify({"error": "Erreur interne du serveur"}), 500
-
-@api.route('/analytics/duplicates', methods=['GET'])
-def analyze_duplicates():
-    """
-    Endpoint pour analyser les doublons potentiels
-    
-    Query parameters:
-    - threshold: Seuil de similarité (défaut: 0.95)
-    """
-    try:
-        threshold = request.args.get('threshold', 0.95, type=float)
-        
-        if threshold < 0.8 or threshold > 1.0:
-            return jsonify({"error": "Le seuil doit être entre 0.8 et 1.0"}), 400
-        
-        person_service = current_app.person_service
-        duplicates = person_service.analyze_duplicate_faces(threshold)
-        
-        return jsonify({
-            "threshold_used": threshold,
-            "potential_duplicates_count": len(duplicates),
-            "duplicates": duplicates
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Erreur lors de l'analyse des doublons: {e}")
         return jsonify({"error": "Erreur interne du serveur"}), 500
 
 # ========================
@@ -912,74 +829,6 @@ def clear_all_data():
 # ENDPOINTS DE MÉTADONNÉES
 # ========================
 
-# Ajouts dans routes/api.py pour la gestion des régions
-
-@api.route('/regions', methods=['GET'])
-def get_available_regions():
-    """
-    Endpoint pour récupérer la liste des régions disponibles
-    """
-    try:
-        return jsonify({
-            "regions": RegionEnum.get_values(),
-            "default_region": RegionEnum.get_default(),
-            "total_count": len(RegionEnum.get_values()),
-            "description": "Régions administratives de Djibouti"
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Erreur lors de la récupération des régions: {e}")
-        return jsonify({"error": "Erreur interne du serveur"}), 500
-
-@api.route('/regions/stats', methods=['GET'])
-def get_regions_statistics():
-    """
-    Endpoint pour récupérer les statistiques par région
-    """
-    try:
-        from sqlalchemy import func
-        from models.person import Person
-        
-        # Statistiques par région
-        region_stats = db.session.query(
-            Person.region,
-            func.count(Person.id).label('count')
-        ).group_by(Person.region).all()
-        
-        # Transformer en dictionnaire
-        stats_dict = {stat.region: stat.count for stat in region_stats}
-        
-        # Ajouter les régions avec 0 personnes
-        all_regions = RegionEnum.get_values()
-        for region in all_regions:
-            if region not in stats_dict:
-                stats_dict[region] = 0
-        
-        # Calculer le total
-        total_persons = sum(stats_dict.values())
-        
-        # Calculer les pourcentages
-        percentages = {}
-        if total_persons > 0:
-            percentages = {
-                region: round((count / total_persons * 100), 2) 
-                for region, count in stats_dict.items()
-            }
-        
-        return jsonify({
-            "region_distribution": stats_dict,
-            "region_percentages": percentages,
-            "total_persons": total_persons,
-            "regions_with_data": len([count for count in stats_dict.values() if count > 0]),
-            "available_regions": all_regions,
-            "default_region": RegionEnum.get_default()
-        }), 200
-        
-    except Exception as e:
-        logger.error(f"Erreur lors de la récupération des statistiques régionales: {e}")
-        return jsonify({"error": "Erreur interne du serveur"}), 500
-
-# Mise à jour des métadonnées pour inclure l'énumération des régions
 @api.route('/metadata/fields', methods=['GET'])
 def get_available_fields():
     """Retourne les champs disponibles pour les filtres et le tri (avec énumération des régions)"""
@@ -1034,51 +883,123 @@ def get_available_fields():
         "enums": {
             "regions": {
                 "values": RegionEnum.get_values(),
-                "default": RegionEnum.get_default()
+                "default": RegionEnum.get_default(),
+                "description": "Régions administratives de Djibouti"
             },
             "genders": ["Masculin", "Féminin", "Autre"]
-        }
+        },
+        "statistics_endpoint": "/api/dashboard/stats",
+        "dashboard_sections": ["volumetry", "recent_activity", "registration_evolution", "demographics", "regions"]
     }), 200
 
-@api.route('/metadata/stats-summary', methods=['GET'])
-def get_stats_summary():
-    """Retourne un résumé rapide des statistiques pour les dashboards"""
+@api.route('/info', methods=['GET'])
+def api_info():
+    """Informations détaillées sur l'API (version finale avec support régions)"""
+    return jsonify({
+        "api_version": "2.0.0-regions-final",
+        "database_optimization": {
+            "indexes_created": True,
+            "pagination_support": True,
+            "advanced_filtering": True,
+            "search_capabilities": True,
+            "regions_support": True
+        },
+        "performance_features": [
+            "Index partiels pour empreintes",
+            "Requêtes avec projection SQL", 
+            "Chargement différé des BLOB",
+            "Pagination intelligente",
+            "Cache des métadonnées",
+            "Support des 6 régions de Djibouti",
+            "Statistiques centralisées dans le dashboard"
+        ],
+        "endpoints": {
+            "persons": {
+                "GET /api/persons": "Liste paginée avec filtres (inclut filtrage par région)",
+                "POST /api/persons": "Création de personne (avec région obligatoire, défaut Djibouti)",
+                "GET /api/persons/{id}": "Détails d'une personne",
+                "DELETE /api/persons/{id}": "Suppression"
+            },
+            "search": {
+                "GET /api/search": "Recherche textuelle (DEPRECATED - utilisez /api/persons?q=...)",
+                "GET /api/persons?q=": "Recherche textuelle unifiée (inclut recherche par région)",
+                "POST /api/filter": "Filtrage avec critères multiples (inclut filtres régionaux)"
+            },
+            "media": {
+                "GET /api/persons/{id}/photo": "Photo de la personne",
+                "GET /api/persons/{id}/fingerprint/{type}": "Empreintes digitales"
+            },
+            "recognition": {
+                "POST /api/identify": "Identification faciale",
+                "POST /api/process": "Traitement d'image"
+            },
+            "statistics": {
+                "GET /api/dashboard/stats": "Statistiques unifiées (inclut section régions)",
+                "available_sections": ["volumetry", "recent_activity", "registration_evolution", "demographics", "regions"]
+            },
+            "admin": {
+                "GET /api/admin/health": "Rapport de santé détaillé",
+                "POST /api/admin/cleanup-embeddings": "Nettoyage des embeddings",
+                "POST /api/admin/rebuild-embedding/{id}": "Reconstruction d'embedding",
+                "POST /api/admin/clear-all": "Suppression de toutes les données"
+            },
+            "metadata": {
+                "GET /api/metadata/fields": "Champs disponibles et énumérations",
+                "GET /api/info": "Informations sur l'API"
+            }
+        },
+        "regions_support": {
+            "available_regions": RegionEnum.get_values(),
+            "default_region": RegionEnum.get_default(),
+            "description": "Support complet des 6 régions administratives de Djibouti",
+            "features": [
+                "Filtrage par région dans tous les endpoints",
+                "Statistiques détaillées par région via /api/dashboard/stats",
+                "Validation avec énumération stricte",
+                "Index de base de données optimisés",
+                "Région par défaut Djibouti"
+            ]
+        },
+        "removed_endpoints": {
+            "note": "Les endpoints de statistiques suivants ont été supprimés:",
+            "removed": [
+                "/api/stats (utilisez /api/dashboard/stats)",
+                "/api/regions (info régions dans /api/metadata/fields)",
+                "/api/regions/stats (utilisez /api/dashboard/stats?sections=regions)",
+                "/api/analytics/duplicates (peut être ajouté plus tard si nécessaire)",
+                "/api/metadata/stats-summary (utilisez /api/dashboard/stats directement)"
+            ],
+            "reason": "Centralisation dans le dashboard unifié pour de meilleures performances"
+        }
+    })
+
+# ========================
+# ENDPOINTS DE SUPPORT (utilitaires)
+# ========================
+
+@api.route('/health', methods=['GET'])
+def api_health():
+    """Endpoint de santé simple pour l'API"""
     try:
-        person_service = current_app.person_service
-        
-        # Requêtes optimisées pour un résumé rapide
+        # Test rapide de connectivité
         total_persons = Person.query.count()
         
-        # Personnes avec empreintes (utilise l'index partiel)
-        persons_with_fingerprints = db.session.query(Person.id).filter(
-            or_(
-                Person.fingerprint_right_data.isnot(None),
-                Person.fingerprint_left_data.isnot(None),
-                Person.fingerprint_thumbs_data.isnot(None)
-            )
-        ).count()
-        
-        # Nouvelles inscriptions (utilise l'index sur created_at)
-        today = datetime.now(timezone.utc).date()
-        today_start = datetime.combine(today, datetime.min.time())
-        new_today = db.session.query(Person.id).filter(
-            Person.created_at >= today_start
-        ).count()
-        
-        week_start = today_start - timedelta(days=7)
-        new_this_week = db.session.query(Person.id).filter(
-            Person.created_at >= week_start
-        ).count()
-        
-        jsonify({
-                    "total_persons": total_persons,
-                    "persons_with_fingerprints": persons_with_fingerprints,
-                    "fingerprint_percentage": round((persons_with_fingerprints / total_persons * 100), 1) if total_persons > 0 else 0,
-                    "new_today": new_today, 
-                    "new_this_week": new_this_week,
-                    "last_updated": datetime.now(timezone.utc).isoformat()
-                }), 200
+        return jsonify({
+            "status": "healthy",
+            "api_version": "2.0.0-regions-final",
+            "timestamp": datetime.utcnow().isoformat(),
+            "total_persons": total_persons,
+            "features": {
+                "regions_support": True,
+                "unified_dashboard": True,
+                "advanced_filtering": True
+            }
+        }), 200
         
     except Exception as e:
-        logger.error(f"Erreur lors de la récupération du résumé des stats: {e}")
-        return jsonify({"error": "Erreur interne du serveur"}), 500
+        logger.error(f"Erreur lors du health check API: {e}")
+        return jsonify({
+            "status": "unhealthy",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        }), 503
