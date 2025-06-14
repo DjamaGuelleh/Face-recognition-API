@@ -41,13 +41,19 @@ class PersonService:
     
     # Mise à jour de la méthode create_person
     def create_person(self, name, age, gender, nationality, region=None, image_file=None, 
-                    fingerprint_right=None, fingerprint_left=None, fingerprint_thumbs=None):
+                    fingerprint_right=None, fingerprint_left=None, fingerprint_thumbs=None,
+                    created_by_user=None):
         """
         Crée une nouvelle personne avec son embedding facial et ses empreintes
-        Version avec énumération des régions et défaut Djibouti
+        Version avec utilisateur obligatoire
         """
         temp_path = None
         try:
+            # VALIDATION UTILISATEUR OBLIGATOIRE (même si DB accepte NULL)
+            if not created_by_user or not created_by_user.strip():
+                logger.error("L'identifiant de l'utilisateur créateur est obligatoire pour les nouvelles créations")
+                return None
+            
             # Si aucune région n'est spécifiée, utiliser Djibouti par défaut
             if not region:
                 region = RegionEnum.get_default()
@@ -79,7 +85,8 @@ class PersonService:
                 "nationality": nationality,
                 "region": region,
                 "person_id": person_id,
-                "detection_score": score
+                "detection_score": score,
+                "created_by_user": created_by_user.strip()  # AJOUT
             }
             
             # Transaction atomique
@@ -103,13 +110,14 @@ class PersonService:
                     nationality=nationality.strip(),
                     region=region.strip(),
                     vector_id=person_id,
+                    created_by_user=created_by_user.strip(),  # AJOUT
                     **binary_data
                 )
                 
                 db.session.add(person)
                 # Le commit est automatique grâce à begin()
                 
-            logger.info(f"Personne créée avec succès: {name} (ID: {person_id}, Région: {region})")
+            logger.info(f"Personne créée avec succès: {name} (ID: {person_id}, Région: {region}, Par: {created_by_user})")
             return person
             
         except Exception as e:

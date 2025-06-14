@@ -26,7 +26,7 @@ api = Blueprint('api', __name__)
 def create_person():
     """
     Endpoint pour créer une nouvelle personne avec empreintes digitales
-    Version avec énumération des régions et défaut Djibouti
+    NOUVEAU: Champ created_by_user obligatoire
     """
     try:
         # Vérifier la présence de tous les champs requis
@@ -42,7 +42,17 @@ def create_person():
         age_str = request.form.get('age')
         gender = request.form.get('gender', '').strip()
         nationality = request.form.get('nationality', '').strip()
-        region = request.form.get('region', '').strip()  # Optionnel maintenant
+        region = request.form.get('region', '').strip()
+        
+        # NOUVEAU: Champ utilisateur obligatoire
+        created_by_user = request.form.get('created_by_user', '').strip()
+        
+        # Validation de l'utilisateur (OBLIGATOIRE pour les nouvelles créations)
+        if not created_by_user:
+            return jsonify({
+                "error": "Le champ 'created_by_user' est obligatoire",
+                "message": "L'identifiant de l'utilisateur créateur doit être fourni pour les nouvelles inscriptions"
+            }), 400
         
         # La région est optionnelle, Djibouti par défaut
         if not region:
@@ -84,11 +94,12 @@ def create_person():
         if fingerprint_thumbs and fingerprint_thumbs.filename == '':
             fingerprint_thumbs = None
         
-        # Créer la personne
+        # Créer la personne AVEC l'utilisateur
         person_service = current_app.person_service
         person = person_service.create_person(
             name, age, gender, nationality, region, photo,
-            fingerprint_right, fingerprint_left, fingerprint_thumbs
+            fingerprint_right, fingerprint_left, fingerprint_thumbs,
+            created_by_user=created_by_user  # NOUVEAU paramètre
         )
         
         if not person:
